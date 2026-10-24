@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+*.pdf
+.ipynb_checkpoints/
+data/.jma_cache/
+site/
+models/
+
+# JRAの成績から作ったデータ・学習済みモデルは、コミットしない（JRAの利用条件への配慮）
+data/
+cards/
+models/
+2024/
+2025/
+2026/
+*.pdf

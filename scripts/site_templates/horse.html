@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "macros.html" import stat_cards, break_table with context %}
+{% block title %}{{ name }}{% endblock %}
+{% block body %}
+<h1>{{ name }}</h1>
+<div class="chips">
+{% for c in chips %}<span class="chip">{{ c }}</span>{% endfor %}
+</div>
+{{ stat_cards(stats) }}
+{% if style %}
+<h2>脚質</h2>
+<p><b>{{ style.label }}</b> <span class="muted">（序盤の位置の平均 {{ style.early }}、逃げた割合 {{ style.front_rate }}、最終コーナーの位置 {{ style.last }}。0 = 先頭、1 = 最後方）</span></p>
+{% endif %}
+{% if spark %}<h2>着順の推移（頭数に対する着順。上ほど上位）</h2><div class="spark">{{ spark|safe }}</div>{% endif %}
+<div class="grid2">
+<div>{{ break_table("コース別", by_surface, "コース")|safe }}</div>
+<div>{{ break_table("馬場別", by_going, "馬場")|safe }}</div>
+</div>
+<h2>出走履歴（{{ stats.runs }}戦）</h2>
+<div class="table-wrap"><table class="sortable">
+<thead><tr><th>日付</th><th>レース</th><th>クラス</th><th>コース</th><th>馬場</th><th class="n">頭数</th><th class="n">枠番</th><th class="n">着</th><th class="n">人気</th><th class="n">単勝</th><th>騎手</th><th class="n">斤量</th><th class="n">馬体重</th><th>タイム</th><th>通過</th></tr></thead>
+<tbody>
+{% for r in history %}
+<tr class="{{ 'win' if r.finish == 1 else ('place' if r.finish in (2, 3) else '') }}">
+<td>{{ r.date }}</td><td><a href="../r/{{ r.key }}.html">{{ r.race }}</a></td><td>{{ r.cls }}</td><td>{{ r.course }}</td><td>{{ r.going }}</td><td class="n">{{ r.n }}</td><td class="n">{{ r.waku }}-{{ r.umaban }}</td>
+<td class="n" data-v="{{ r.finish or 99 }}">{{ r.finish if r.finish else '—' }}</td><td class="n">{{ r.ninki }}</td><td class="n">{{ r.odds }}</td>
+<td><a href="../{{ r.jockey_url }}">{{ r.jockey }}</a></td><td class="n">{{ r.weight }}</td><td class="n">{{ r.bw }}</td><td>{{ r.time }}</td><td class="muted">{{ r.corners }}</td>
+</tr>
+{% endfor %}
+</tbody></table></div>
+{% endblock %}

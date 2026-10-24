@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}ランキング{% endblock %}
+{% block body %}
+<h1>ランキング</h1>
+<p class="sub">{{ period }}の成績です。列の名前をクリックすると並べ替えられます。</p>
+{% for blk in blocks %}
+<h2>{{ blk.title }}</h2>
+<div class="table-wrap"><table class="sortable">
+<thead><tr><th>{{ blk.col }}</th><th class="n">出走</th><th class="n">1着</th><th class="n">3着以内</th><th class="n">勝率</th><th class="n">複勝率</th><th class="n">単勝回収率</th></tr></thead>
+<tbody>{% for r in blk.rows %}<tr><td><a href="{{ r.url }}">{{ r.label }}</a></td><td class="n">{{ r.runs }}</td><td class="n">{{ r.w }}</td><td class="n">{{ r.top3 }}</td><td class="n">{{ r.win_rate }}</td><td class="n">{{ r.place_rate }}</td><td class="n">{{ r.win_roi }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endfor %}
+{% endblock %}

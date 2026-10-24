@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}検索{% endblock %}
+{% block body %}
+<h1>検索</h1>
+<p class="sub">馬名・騎手名・調教師名・日付（例 2026-03-01）で検索できます。</p>
+<p><input id="q" style="width:100%;max-width:480px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font:inherit" placeholder="検索" autofocus></p>
+<div id="search-results"></div>
+{% endblock %}

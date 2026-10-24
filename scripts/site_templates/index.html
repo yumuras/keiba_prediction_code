@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}トップ{% endblock %}
+{% block body %}
+<h1>競馬データブラウザ</h1>
+<p class="sub">JRAの成績表（{{ period }}）から、馬・レース・騎手・調教師を見られます。</p>
+<div class="cards">
+<div class="card"><b>{{ n_races }}</b><span>レース</span></div>
+<div class="card"><b>{{ n_runs }}</b><span>延べ出走頭数</span></div>
+<div class="card"><b>{{ n_horses }}</b><span>馬</span></div>
+<div class="card"><b>{{ n_jockeys }}</b><span>騎手</span></div>
+<div class="card"><b>{{ n_trainers }}</b><span>調教師</span></div>
+<div class="card"><b>{{ n_days }}</b><span>開催日</span></div>
+</div>
+<h2>最近の開催日</h2>
+<div class="table-wrap"><table><tbody>
+{% for d in latest %}<tr><td><a href="d/{{ d.date }}.html">{{ d.label }}</a></td><td class="muted">{{ d.venues }}</td><td class="n muted">{{ d.races }}レース</td></tr>{% endfor %}
+</tbody></table></div>
+<h2>競馬場</h2>
+<div class="table-wrap"><table class="sortable"><thead><tr><th>競馬場</th><th class="n">レース</th><th class="n">出走頭数</th><th class="n">開催日</th></tr></thead><tbody>
+{% for v in venues %}<tr><td>{{ v.venue }}</td><td class="n">{{ v.races }}</td><td class="n">{{ v.runs }}</td><td class="n">{{ v.days }}</td></tr>{% endfor %}
+</tbody></table></div>
+<h2>探す</h2>
+<p><a href="calendar.html">開催日から探す</a> ／ <a href="rankings.html">ランキング</a> ／ <a href="courses.html">コース別の傾向</a> ／ 上の検索ボックスで馬名・騎手名・調教師名・日付を検索</p>
+{% endblock %}

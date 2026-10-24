@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}コース別の傾向{% endblock %}
+{% block body %}
+<h1>コース別の傾向</h1>
+<p class="sub">競馬場・コース・距離ごとの傾向です（5レース以上）。「先行」は序盤に前から1/3以内にいた馬、「後方」は後ろから1/3以内にいた馬です。列の名前をクリックすると並べ替えられます。</p>
+<div class="table-wrap"><table class="sortable">
+<thead><tr><th>競馬場</th><th>コース</th><th class="n">距離</th><th class="n">レース</th><th class="n">平均頭数</th><th class="n">1番人気の勝率</th><th class="n">1番人気の複勝率</th><th class="n">先行の複勝率</th><th class="n">後方の複勝率</th><th class="n">内枠の複勝率</th><th class="n">外枠の複勝率</th><th class="n">勝ち時計</th></tr></thead>
+<tbody>{% for c in courses %}<tr><td>{{ c.venue }}</td><td>{{ c.course }}</td><td class="n">{{ c.distance }}</td><td class="n">{{ c.races }}</td><td class="n">{{ c.n }}</td><td class="n">{{ c.fav_win }}</td><td class="n">{{ c.fav_place }}</td><td class="n">{{ c.front }}</td><td class="n">{{ c.back }}</td><td class="n">{{ c.inner }}</td><td class="n">{{ c.outer }}</td><td class="n" data-v="{{ c.time_sec }}">{{ c.time }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endblock %}

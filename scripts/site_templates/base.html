@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ja" data-root="{{ root }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{% endblock %} | 競馬データブラウザ</title>
+<link rel="stylesheet" href="{{ root }}assets/style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="{{ root }}index.html">競馬データブラウザ</a>
+  <nav>
+    <a href="{{ root }}calendar.html">開催日</a>
+    <a href="{{ root }}rankings.html">ランキング</a>
+    <a href="{{ root }}courses.html">コース</a>
+  </nav>
+  <form class="search" action="{{ root }}search.html" autocomplete="off">
+    <input name="q" placeholder="馬・騎手・調教師・日付（2026-03-01）を検索">
+  </form>
+</header>
+<main>
+{% block body %}{% endblock %}
+</main>
+<footer>JRA公式の成績表（PDF）から作ったデータです（{{ period }}）。着順・オッズ・払戻はPDFの値で、複勝の払戻は着順に対応させています。</footer>
+<script src="{{ root }}assets/index.js"></script>
+<script src="{{ root }}assets/app.js"></script>
+</body>
+</html>

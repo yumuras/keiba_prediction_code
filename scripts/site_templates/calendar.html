@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}開催日{% endblock %}
+{% block body %}
+<h1>開催日</h1>
+<p class="sub">日付を選ぶと、その日の全レースが見られます。</p>
+{% for m in months %}
+<div class="month"><h2>{{ m.label }}</h2>
+<div class="table-wrap"><table><tbody>
+{% for d in m.days %}<tr><td><a href="d/{{ d.date }}.html">{{ d.label }}</a></td><td class="muted">{{ d.venues }}</td><td class="n muted">{{ d.races }}レース</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% endfor %}
+{% endblock %}

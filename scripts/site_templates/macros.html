@@ -1,0 +1,39 @@
+{% macro race_table(rows) %}
+<div class="table-wrap">
+<table>
+<thead><tr><th class="n">着</th><th class="n">枠</th><th class="n">馬番</th><th>馬名</th><th>性齢</th><th class="n">斤量</th><th>騎手</th><th>調教師</th><th class="n">馬体重</th><th>タイム</th><th class="n">人気</th><th class="n">単勝</th><th>通過</th><th class="n">複勝</th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr class="{{ 'win' if r.finish == 1 else ('place' if r.finish in (2, 3) else '') }}">
+<td class="n">{{ r.finish if r.finish else '—' }}</td><td class="n">{{ r.waku }}</td><td class="n">{{ r.umaban }}</td>
+<td><a href="{{ root }}{{ r.horse_url }}">{{ r.horse }}</a></td><td>{{ r.sexage }}</td><td class="n">{{ r.weight }}</td>
+<td><a href="{{ root }}{{ r.jockey_url }}">{{ r.jockey }}</a></td><td><a href="{{ root }}{{ r.trainer_url }}">{{ r.trainer }}</a></td>
+<td class="n">{{ r.bw }}</td><td>{{ r.time }}</td><td class="n">{{ r.ninki }}</td><td class="n">{{ r.odds }}</td><td class="muted">{{ r.corners }}</td>
+<td class="n">{{ r.place_pay }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% endmacro %}
+
+{% macro stat_cards(s) %}
+<div class="cards">
+<div class="card"><b>{{ s.runs }}</b><span>出走</span></div>
+<div class="card"><b>{{ s.w }}-{{ s.p2 }}-{{ s.p3 }}-{{ s.out }}</b><span>1着-2着-3着-着外</span></div>
+<div class="card"><b>{{ s.win_rate }}</b><span>勝率</span></div>
+<div class="card"><b>{{ s.place_rate }}</b><span>複勝率（3着以内）</span></div>
+<div class="card"><b>{{ s.win_roi }}</b><span>単勝回収率</span></div>
+<div class="card"><b>{{ s.place_roi }}</b><span>複勝回収率</span></div>
+</div>
+{% endmacro %}
+
+{% macro break_table(title, rows, first) %}
+{% if rows %}
+<h2>{{ title }}</h2>
+<div class="table-wrap"><table class="sortable">
+<thead><tr><th>{{ first }}</th><th class="n">出走</th><th class="n">1着</th><th class="n">3着以内</th><th class="n">勝率</th><th class="n">複勝率</th><th class="n">単勝回収率</th></tr></thead>
+<tbody>{% for r in rows %}<tr><td>{{ r.label }}</td><td class="n">{{ r.runs }}</td><td class="n">{{ r.w }}</td><td class="n">{{ r.top3 }}</td><td class="n">{{ r.win_rate }}</td><td class="n">{{ r.place_rate }}</td><td class="n">{{ r.win_roi }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endif %}
+{% endmacro %}

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from "macros.html" import race_table with context %}
+{% block title %}{{ title }}{% endblock %}
+{% block body %}
+<div class="pager">{% if prev %}<a href="{{ prev.key }}.html">← {{ prev.label }}</a>{% else %}<span></span>{% endif %}<a href="../d/{{ date }}.html">{{ date_label }}の一覧</a>{% if next %}<a href="{{ next.key }}.html">{{ next.label }} →</a>{% else %}<span></span>{% endif %}</div>
+<h1>{{ title }}</h1>
+<div class="chips">
+{% for c in chips %}<span class="chip">{{ c }}</span>{% endfor %}
+</div>
+{{ race_table(rows) }}
+<h2>払戻（100円あたり）</h2>
+<div class="chips">
+{% if win_pay %}<span class="chip">単勝 {{ win_horse }} {{ win_pay }}円</span>{% endif %}
+{% for p in place_pays %}<span class="chip">複勝 {{ p.horse }} {{ p.pay }}円</span>{% endfor %}
+{% if not win_pay %}<span class="chip grey">払戻を読み取れていないレースです（1着同着など）</span>{% endif %}
+</div>
+{% if corner_note %}<p class="muted">{{ corner_note }}</p>{% endif %}
+{% endblock %}

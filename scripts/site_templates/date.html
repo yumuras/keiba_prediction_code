@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "macros.html" import race_table with context %}
+{% block title %}{{ label }}{% endblock %}
+{% block body %}
+<div class="pager">{% if prev %}<a href="{{ prev.date }}.html">← {{ prev.label }}</a>{% else %}<span></span>{% endif %}{% if next %}<a href="{{ next.date }}.html">{{ next.label }} →</a>{% endif %}</div>
+<h1>{{ label }}</h1>
+<p class="sub">{{ venues }}</p>
+{% for v in venue_blocks %}
+<h2>{{ v.venue }}（{{ v.kai }}）</h2>
+<div class="table-wrap"><table>
+<thead><tr><th class="n">R</th><th>発走</th><th>クラス</th><th>コース</th><th>馬場</th><th class="n">頭数</th><th>1着</th><th>騎手</th><th class="n">単勝</th><th>2着</th><th>3着</th></tr></thead>
+<tbody>
+{% for r in v.races %}
+<tr><td class="n"><a href="../r/{{ r.key }}.html">{{ r.no }}R</a></td><td>{{ r.start }}</td><td>{{ r.cls }}</td><td>{{ r.course }}</td><td>{{ r.going }}</td><td class="n">{{ r.n }}</td>
+<td><a href="../{{ r.w1_url }}">{{ r.w1 }}</a></td><td>{{ r.w1_jockey }}</td><td class="n">{{ r.win_pay }}</td>
+<td>{% if r.w2 %}<a href="../{{ r.w2_url }}">{{ r.w2 }}</a>{% endif %}</td><td>{% if r.w3 %}<a href="../{{ r.w3_url }}">{{ r.w3 }}</a>{% endif %}</td></tr>
+{% endfor %}
+</tbody></table></div>
+{% endfor %}
+{% endblock %}

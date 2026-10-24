@@ -1,0 +1,119 @@
+:root {
+  --bg: #f7f7f4;
+  --panel: #ffffff;
+  --text: #1d2420;
+  --muted: #66706a;
+  --line: #e2e4dd;
+  --accent: #1f6f4a;
+  --accent-soft: #e4f1ea;
+  --warn: #b4531a;
+  --win: #fff6d6;
+  --place: #f1f4ec;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .05);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141816;
+    --panel: #1c211e;
+    --text: #e8ece8;
+    --muted: #98a39c;
+    --line: #2d3530;
+    --accent: #5bc690;
+    --accent-soft: #1f3328;
+    --warn: #e59a5f;
+    --win: #3a3317;
+    --place: #232a25;
+    --shadow: none;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.brand { font-weight: 700; font-size: 17px; color: var(--text); }
+.top nav { display: flex; gap: 14px; }
+.search { position: relative; margin-left: auto; flex: 1 1 220px; max-width: 360px; }
+.search input {
+  width: 100%;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.suggest {
+  position: absolute;
+  left: 0; right: 0; top: 100%;
+  margin-top: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .15);
+  max-height: 60vh;
+  overflow-y: auto;
+  display: none;
+}
+.suggest.on { display: block; }
+.suggest a { display: flex; justify-content: space-between; gap: 10px; padding: 7px 12px; color: var(--text); }
+.suggest a:hover, .suggest a.sel { background: var(--accent-soft); text-decoration: none; }
+.suggest small, .tag { color: var(--muted); }
+
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+h1 { font-size: 24px; margin: 4px 0 6px; }
+h2 { font-size: 17px; margin: 28px 0 10px; padding-left: 10px; border-left: 4px solid var(--accent); }
+.sub { color: var(--muted); margin: 0 0 16px; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; box-shadow: var(--shadow); }
+.card b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+.card span { color: var(--muted); font-size: 13px; }
+
+.table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th { background: var(--accent-soft); font-weight: 600; font-size: 13px; position: sticky; top: 0; }
+tr:last-child td { border-bottom: 0; }
+td.n, th.n { text-align: right; }
+tr.win td { background: var(--win); }
+tr.place td { background: var(--place); }
+table.sortable th { cursor: pointer; user-select: none; }
+table.sortable th::after { content: " ↕"; color: var(--muted); font-size: 11px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.chip { padding: 2px 10px; border-radius: 999px; background: var(--accent-soft); font-size: 13px; }
+.chip.grey { background: var(--place); color: var(--muted); }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.two-col { columns: 2 260px; column-gap: 24px; }
+.two-col a { display: block; }
+.muted { color: var(--muted); }
+.warn { color: var(--warn); }
+.pager { display: flex; justify-content: space-between; margin: 14px 0; }
+.spark { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px; }
+.spark svg { width: 100%; height: 90px; display: block; }
+footer { max-width: 1100px; margin: 0 auto; padding: 0 16px 32px; color: var(--muted); font-size: 12px; }
+.months a { display: inline-block; margin: 2px 8px 2px 0; }
+.month { margin-bottom: 18px; }
