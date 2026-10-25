@@ -177,6 +177,7 @@ FEATURE_LABELS = {
     "mean_last_corner_pos": "最終コーナーの位置（平均）", "mean_gain": "直線で抜いた頭数（平均）", "front_rate": "逃げた割合", "prev_early_pos": "前走の序盤の位置",
     "jockey_surf_top3_rate": "騎手の、芝・ダート別の3着内率", "horse_jockey_top3_rate": "この馬と騎手のコンビの3着内率",
     "jockey_trainer_top3_rate": "騎手と調教師の組み合わせの3着内率", "prev_class_diff": "前走からのクラスの昇降", "jockey_change": "乗り替わり",
+    "prev_mkt_prob": "前走の、市場からの評価（勝率）", "mean_mkt_prob": "過去の、市場からの評価（平均）",
     "body_weight_diff": "馬体重の増減", "num_runners": "頭数", "class_rank": "クラス", "wet_diff": "道悪での着順の差", "n_front_runners": "先行馬の頭数",
 }
 
@@ -219,8 +220,30 @@ def explain_win(res, models, horse_name, top=7):
     mix = None
     if res["p_win_mix"].notna().all() and "win_benter" in models:
         a, b = models["win_benter"]
+        mkt = res["mkt_prob"].to_numpy()
+
+        def mix_p(raw3):
+            sc = a * np.log(mkt) + b * logit(np.clip(raw3, 1e-4, 1 - 1e-4))
+            w = np.exp(sc - sc.max())
+            return w / w.sum()
+
         raw3 = models["top3_odds"].predict_ability(res)
-        lg = float(np.log(np.clip(raw3[i], 1e-4, 1 - 1e-4) / (1 - np.clip(raw3[i], 1e-4, 1 - 1e-4))))
-        mix = dict(mkt=float(res["p_mkt_win"][i]), mkt_term=float(a * np.log(res["mkt_prob"][i])), ability3=float(raw3[i]),
-                   ability_term=float(b * lg), p_win_mix=float(res["p_win_mix"][i]), a=float(a), b=float(b))
+        p_mix = mix_p(raw3)[i]
+        w0 = np.exp(a * np.log(mkt) - (a * np.log(mkt)).max())
+        p_a_only = (w0 / w0.sum())[i]  # 能力の項を0にした（市場の勝率だけを、指数 a で補正した）勝率
+        rows2 = []
+        for f in T.FEATURES:
+            X = res.copy()
+            col = X[f]
+            X[f] = X[f].astype(float) if str(col.dtype) != "category" else col
+            val = col.mode().iloc[0] if str(col.dtype) == "category" else col.astype(float).median()
+            X.loc[i, f] = val
+            rows2.append((f, res.loc[i, f], val, mix_p(models["top3_odds"].predict_ability(X))[i] - p_mix))
+        t2 = pd.DataFrame(rows2, columns=["f", "値", "中央", "d"])
+        t2 = t2.reindex(t2["d"].abs().sort_values(ascending=False).index).head(top)
+        t2.insert(0, "特徴量", [feature_label(f) for f in t2["f"]])
+        t2["市場込みの勝率への影響（ポイント）"] = -t2["d"] * 100
+        mix = dict(mkt=float(res["p_mkt_win"][i]), mkt_term=float(a * np.log(mkt[i])), ability3=float(raw3[i]),
+                   ability_term=float(b * logit(np.clip(raw3[i], 1e-4, 1 - 1e-4))), p_win_mix=float(p_mix), p_a_only=float(p_a_only),
+                   a=float(a), b=float(b), table=t2[["特徴量", "値", "中央", "市場込みの勝率への影響（ポイント）"]].reset_index(drop=True))
     return t[["特徴量", "値", "中央", "勝率への影響（ポイント）"]].reset_index(drop=True), dict(p_ability=float(p), mix=mix)
