@@ -258,5 +258,81 @@ def explain_win(res, models, horse_name, top=7):
         t2["市場込みの勝率への影響（ポイント）"] = -t2["d"] * 100
         mix = dict(mkt=float(res["p_mkt_win"][i]), mkt_term=float(a * np.log(mkt[i])), ability3=float(raw3[i]),
                    ability_term=float(b * logit(np.clip(raw3[i], 1e-4, 1 - 1e-4))), p_win_mix=float(p_mix), p_a_only=float(p_a_only),
-                   a=float(a), b=float(b), table=t2[["特徴量", "値", "中央", "市場込みの勝率への影響（ポイント）"]].reset_index(drop=True))
-    return t[["特徴量", "値", "中央", "勝率への影響（ポイント）"]].reset_index(drop=True), dict(p_ability=float(p), mix=mix)
+                   a=float(a), b=float(b), table=t2[["f", "特徴量", "値", "中央", "市場込みの勝率への影響（ポイント）"]].reset_index(drop=True))
+    return t[["f", "特徴量", "値", "中央", "勝率への影響（ポイント）"]].reset_index(drop=True), dict(p_ability=float(p), mix=mix)
+
+
+# ---- 専門用語を使わない説明文 ---------------------------------------------------------------------
+
+# 数字が小さいほど良い特徴量（着順、タイム差）／大きいほど良い特徴量（3着内率など）。どちらでもないものは、「高い・低い」と書く
+LOWER_IS_BETTER = {"mean_behind", "prev_behind", "horse_mean_finish_rate", "horse_prev_finish_rate", "cond_mean_finish_rate",
+                   "surface_mean_finish_rate", "best_finish_rate"}
+HIGHER_IS_BETTER = {"horse_top3_rate", "jockey_top3_rate", "trainer_top3_rate", "jockey_surf_top3_rate", "horse_jockey_top3_rate",
+                    "jockey_trainer_top3_rate", "mean_gain", "prev_mkt_prob", "mean_mkt_prob"}
+PLAIN_NAME = {"mean_behind": "過去のレースで、勝ち馬につけられた差", "prev_behind": "前走で、勝ち馬につけられた差", "horse_top3_rate": "過去の3着内率",
+              "horse_mean_finish_rate": "過去の着順", "horse_prev_finish_rate": "前走の着順", "cond_mean_finish_rate": "今回と同じ条件での過去の着順",
+              "surface_mean_finish_rate": "同じ芝・ダートでの過去の着順", "best_finish_rate": "過去の最高の着順", "jockey_top3_rate": "騎手の成績（3着内率）",
+              "trainer_top3_rate": "調教師の成績（3着内率）", "jockey_surf_top3_rate": "騎手の、この芝・ダートでの成績", "horse_jockey_top3_rate": "この馬と騎手のコンビの成績",
+              "jockey_trainer_top3_rate": "騎手と調教師の組み合わせの成績", "mean_gain": "最後の直線で、他の馬を抜く力", "prev_mkt_prob": "前走での、人気（市場の評価）",
+              "mean_mkt_prob": "過去の、人気（市場の評価）", "body_weight": "馬体重", "carried_weight": "背負う斤量", "age": "年齢", "waku": "枠", "umaban": "馬番",
+              "mean_early_pos": "レース序盤の位置取り", "horse_runs": "走った回数", "days_since_last": "前走からの間隔", "distance": "距離"}
+
+
+def _level_word(z, good_is_high):
+    """メンバーの中での位置（z）を、言葉にする。good_is_high が None のときは、良し悪しでなく、高い・低いで書く"""
+    mag = "飛び抜けて" if abs(z) >= 1.5 else "かなり" if abs(z) >= 1.0 else "やや" if abs(z) >= 0.4 else "ほぼ平均的"
+    if mag == "ほぼ平均的":
+        return "ほぼ平均的"
+    high = z > 0
+    if good_is_high is None:
+        return f"{mag}{'高い' if high else '低い'}"
+    return f"{mag}{'良い' if high == good_is_high else '悪い'}"
+
+
+RATE_PCT = {"horse_top3_rate", "jockey_top3_rate", "trainer_top3_rate", "jockey_surf_top3_rate", "horse_jockey_top3_rate", "jockey_trainer_top3_rate"}
+PLAIN_NAME.update({"prev_dist_diff": "前走からの距離の変化", "carried_weight_diff": "前走からの斤量の変化", "body_weight_diff": "馬体重の増減"})
+
+
+def plain_reason(row):
+    """説明の表の1行（f, 値, 中央）から、専門用語を使わない1つの文を作る。例: 「過去の3着内率が、メンバーの中で飛び抜けて良い」。作れないときは None"""
+    f, v, med = row["f"], row["値"], row["中央"]
+    base = f[:-2] if f.endswith("_z") else f
+    name = PLAIN_NAME.get(base)
+    if name is None:
+        return None  # 日本語名が無い特徴量は、画面に出さない
+    good_is_high = True if base in HIGHER_IS_BETTER else False if base in LOWER_IS_BETTER else None
+    if f.endswith("_z") and isinstance(v, (int, float)):
+        return f"{name}が、メンバーの中で{_level_word(float(v), good_is_high)}"
+    if not (isinstance(v, (int, float)) and isinstance(med, (int, float))):
+        return f"{name}が、{v}"
+    if base in RATE_PCT:
+        return f"{name}が、{v * 100:.0f}%（このレースの中央値は {med * 100:.0f}%）"
+    if base in LOWER_IS_BETTER and base != "mean_behind" and base != "prev_behind":  # 着順を、頭数で割った値（0〜1）
+        return f"{name}が、出走した馬の上位{max(v, 0.01) * 100:.0f}%（このレースの中央値は 上位{med * 100:.0f}%）"
+    if base in ("mean_behind", "prev_behind"):
+        return f"{name}が、{v:.1f}秒（このレースの中央値は {med:.1f}秒）"
+    if base in ("prev_dist_diff", "carried_weight_diff"):
+        unit = "m" if base == "prev_dist_diff" else "kg"
+        return f"{name}が、{v:+.0f}{unit}（このレースの中央値は {med:+.0f}{unit}）"
+    return f"{name}が、{v:.3g}（このレースの中央値は {med:.3g}）"
+
+
+def plain_reasons(why, kind, n=4, min_abs=0.5):
+    """表から、強み（kind="+"）または弱み（kind="-"）の文を、影響の大きい順に n 個まで作る。同じ特徴量（本人の値と、メンバー内の相対）は、1つにまとめる"""
+    col = [c for c in why.columns if "影響" in c][0]
+    out, seen = [], set()
+    for _, r in why.iterrows():
+        d = r[col]
+        if (kind == "+" and d < min_abs) or (kind == "-" and d > -min_abs):
+            continue
+        base = r["f"][:-2] if r["f"].endswith("_z") else r["f"]
+        if base in seen:
+            continue
+        txt = plain_reason(r)
+        if txt is None:
+            continue
+        seen.add(base)
+        out.append((txt, abs(float(d))))
+        if len(out) >= n:
+            break
+    return out

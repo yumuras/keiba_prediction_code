@@ -242,40 +242,65 @@ def render_prediction(pred):
         st.info("この馬は無敗（出走した全レースで1着）です。過去の検証（2024〜2026年）では、無敗馬は、市場から期待される勝ち数の0.93倍しか勝っていません（人気の無敗馬では0.83倍）。"
                 "確率の基準で「理論の補正」を選ぶと、市場込みの勝率を0.93倍して、買い目の確率に使います（弱い兆候です）。")
     c1, c2, c3 = st.columns(3)
-    c1.metric("能力勝率（オッズなし）", f"{row['p_win'] * 100:.1f}%")
+    c1.metric("能力だけで見た勝率", f"{row['p_win'] * 100:.1f}%")
     if mixable:
-        c2.metric("市場の勝率（オッズから）", f"{row['p_mkt_win'] * 100:.1f}%")
-        c3.metric("市場込みの勝率", f"{row['p_win_mix'] * 100:.1f}%")
-    st.markdown("**能力勝率（オッズなし）が、その値になった主な理由**")
-    show = why.copy()
-    show["値"] = show["値"].map(lambda v: f"{v:.3g}" if isinstance(v, (int, float)) else str(v))
-    show["中央"] = show["中央"].map(lambda v: f"{v:.3g}" if isinstance(v, (int, float)) else str(v))
-    show = show.rename(columns={"中央": "このレースの中央値"})
-    st.dataframe(show, hide_index=True, use_container_width=True, column_config={
-        "勝率への影響（ポイント）": st.column_config.NumberColumn(format="%+.1f", help="その特徴量を、このレースの中央値に置き換えたとき、勝率が下がる（プラス）／上がる（マイナス）幅")})
-    st.caption("特徴量を1つずつ、このレースの中央値に置き換えて、この馬の勝率がどれだけ変わるかを見ています。プラスは、その特徴量が勝率を押し上げているという意味です。"
-               "特徴量どうしの重なりは分けられない目安です。「メンバー内の相対」は、同じレースの他の馬と比べた値です。")
+        c2.metric("オッズ（みんなの予想）の勝率", f"{row['p_mkt_win'] * 100:.1f}%")
+        c3.metric("両方を合わせた勝率", f"{row['p_win_mix'] * 100:.1f}%")
+    nm_ = names_by_no[pick]
+    # ---- やさしい説明（専門用語なし） ----
+    why_big, _ = P.explain_win(res, models, nm_, top=12)
+    plus, minus = P.plain_reasons(why_big, "+"), P.plain_reasons(why_big, "-", n=3)
+    st.markdown("**能力から見ると**（過去の成績・騎手・調教師・馬体重などだけで見た勝率。オッズは見ていません）")
+    st.markdown(f"{nm_}の勝率は、**{row['p_win'] * 100:.1f}%** でした。")
+    if plus:
+        st.markdown("勝率を押し上げた点：\n" + "\n".join(f"- {t}（約 +{d:.1f} ポイント）" for t, d in plus))
+    if minus:
+        st.markdown("勝率を押し下げた点：\n" + "\n".join(f"- {t}（約 −{d:.1f} ポイント）" for t, d in minus))
+    if not plus and not minus:
+        st.markdown("目立った強み・弱みはなく、ほぼ平均的な評価です。")
+    st.caption("「約 +○ ポイント」は、その点が、他の馬と同じ平均的な値だった場合と比べて、勝率が何ポイント変わるかの目安です（複数の点が重なる影響は、分けられていません）。")
     if info["mix"]:
         m_ = info["mix"]
-        st.markdown("**市場込みの勝率（オッズあり）が、その値になった理由**")
-        d1, d2 = (m_["p_a_only"] - m_["mkt"]) * 100, (m_["p_win_mix"] - m_["p_a_only"]) * 100
+        diff = (m_["p_win_mix"] - m_["mkt"]) * 100
+        gap = row["p_win"] * 100 - m_["mkt"] * 100
+        st.markdown("**オッズを入れると**（みんなの予想＝単勝オッズも使った勝率）")
+        near = "ほぼオッズどおり" if abs(diff) < 3 else "オッズより高め" if diff > 0 else "オッズより低め"
         st.markdown(
-            f"- 出発点：市場の勝率（単勝オッズから）**{m_['mkt'] * 100:.1f}%**\n"
-            f"- ① 補正：式の係数 {m_['a']:.2f}（1より大きいので、人気馬の勝率を少し上げ、人気薄を下げる）で、**{m_['p_a_only'] * 100:.1f}%**（{d1:+.1f}ポイント）\n"
-            f"- ② 能力の項：能力モデルの3着内確率 {m_['ability3'] * 100:.0f}% を、係数 ({m_['b']:.2f}) で足して、**{m_['p_win_mix'] * 100:.1f}%**（{d2:+.1f}ポイント）\n"
-            f"- 式：`{m_['a']:.2f} × log(市場の勝率) + ({m_['b']:.2f}) × logit(能力の3着内確率)`（市場の項 {m_['mkt_term']:+.2f}、能力の項 {m_['ability_term']:+.2f}）を、レース内で合計1にそろえます。")
-        st.markdown("**② の能力の項に効いた特徴量**（市場込みの勝率が、特徴量でどれだけ動くか）")
-        t3 = m_["table"].copy()
-        t3["値"] = t3["値"].map(lambda v: f"{v:.3g}" if isinstance(v, (int, float)) else str(v))
-        t3["中央"] = t3["中央"].map(lambda v: f"{v:.3g}" if isinstance(v, (int, float)) else str(v))
-        st.dataframe(t3.rename(columns={"中央": "このレースの中央値"}), hide_index=True, use_container_width=True,
-                     column_config={"市場込みの勝率への影響（ポイント）": st.column_config.NumberColumn(format="%+.2f")})
-        st.caption("プラスは、その特徴量が、市場込みの勝率を押し上げているという意味です。**能力の項の係数は、小さなマイナス（" + f"{m_['b']:.2f}" + "）なので、"
-                   "能力が高いと見える特徴量は、むしろ、市場込みの勝率を少し下げる向きに出ます**（過去の検証で、能力が高く見える馬は、市場がすでに織り込んでいて、"
-                   "上乗せにならなかったため）。係数が小さいので、影響は、1ポイント未満で、市場込みの勝率は、市場の勝率にほぼ等しくなります。"
-                   "これは、過去のデータに当てはめた式の係数による見かけの理由で、因果関係ではありません。")
-    else:
-        st.info("単勝オッズを全頭に入れると、市場込みの勝率の理由も出ます。")
+            f"- みんなの予想（単勝オッズ）では、勝つ確率は **{m_['mkt'] * 100:.1f}%** です。\n"
+            f"- 能力だけで見ると {row['p_win'] * 100:.1f}% で、みんなの予想より {abs(gap):.1f} ポイント{'高い' if gap > 0 else '低い'}です。\n"
+            f"- 両方を合わせた最終の勝率は **{m_['p_win_mix'] * 100:.1f}%** で、**{near}**（みんなの予想との差 {diff:+.1f} ポイント）です。")
+        if abs(gap) >= 10:
+            st.caption("能力だけの見立ては、人気馬を低めに、人気薄を高めに見積もる傾向があります（過去の成績は、人気を集めるほどの強さまでは、うまく表せないため）。")
+        st.caption("オッズの影響が大きく、能力の見立ては、わずかにしか反映されません。過去のレースで確かめたところ、能力の見立てを足しても、的中がほとんど良くならなかったためです。"
+                   "つまり、この勝率は、実質的に、みんなの予想（オッズ）とほぼ同じです。")
+
+    with st.expander("計算の詳細（専門的な内容）"):
+        st.markdown("**能力勝率（オッズなし）：特徴量ごとの影響**")
+        show = why.drop(columns="f").copy()
+        show["値"] = show["値"].map(lambda v: f"{v:.3g}" if isinstance(v, (int, float)) else str(v))
+        show["中央"] = show["中央"].map(lambda v: f"{v:.3g}" if isinstance(v, (int, float)) else str(v))
+        show = show.rename(columns={"中央": "このレースの中央値"})
+        st.dataframe(show, hide_index=True, use_container_width=True, column_config={
+            "勝率への影響（ポイント）": st.column_config.NumberColumn(format="%+.1f", help="その特徴量を、このレースの中央値に置き換えたとき、勝率が下がる（プラス）／上がる（マイナス）幅")})
+        st.caption("特徴量を1つずつ、このレースの中央値に置き換えて、この馬の勝率がどれだけ変わるかを見ています。「メンバー内の相対」は、同じレースの他の馬と比べた値です。")
+        if info["mix"]:
+            m_ = info["mix"]
+            d1, d2 = (m_["p_a_only"] - m_["mkt"]) * 100, (m_["p_win_mix"] - m_["p_a_only"]) * 100
+            st.markdown("**市場込みの勝率：計算の流れ**")
+            st.markdown(
+                f"- 出発点：市場の勝率（単勝オッズから）**{m_['mkt'] * 100:.1f}%**\n"
+                f"- ① 補正：式の係数 {m_['a']:.2f}（1より大きいので、人気馬の勝率を少し上げ、人気薄を下げる）で、**{m_['p_a_only'] * 100:.1f}%**（{d1:+.1f}ポイント）\n"
+                f"- ② 能力の項：能力モデルの3着内確率 {m_['ability3'] * 100:.0f}% を、係数 ({m_['b']:.2f}) で足して、**{m_['p_win_mix'] * 100:.1f}%**（{d2:+.1f}ポイント）\n"
+                f"- 式：`{m_['a']:.2f} × log(市場の勝率) + ({m_['b']:.2f}) × logit(能力の3着内確率)`（市場の項 {m_['mkt_term']:+.2f}、能力の項 {m_['ability_term']:+.2f}）を、レース内で合計1にそろえます。")
+            t3 = m_["table"].drop(columns="f").copy()
+            t3["値"] = t3["値"].map(lambda v: f"{v:.3g}" if isinstance(v, (int, float)) else str(v))
+            t3["中央"] = t3["中央"].map(lambda v: f"{v:.3g}" if isinstance(v, (int, float)) else str(v))
+            st.dataframe(t3.rename(columns={"中央": "このレースの中央値"}), hide_index=True, use_container_width=True,
+                         column_config={"市場込みの勝率への影響（ポイント）": st.column_config.NumberColumn(format="%+.2f")})
+            st.caption("能力の項の係数は、小さなマイナス（" + f"{m_['b']:.2f}" + "）なので、能力が高く見える特徴量は、むしろ、市場込みの勝率を少し下げる向きに出ます。"
+                       "影響は1ポイント未満です。過去のデータに当てはめた式の係数による見かけの理由で、因果関係ではありません。")
+    if not info["mix"]:
+        st.info("単勝オッズを全頭に入れると、オッズも使った勝率の理由も出ます。")
 
     # ③ 買い目（券種別）
     st.markdown("#### ③ 買い目（券種別）")
