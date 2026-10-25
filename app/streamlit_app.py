@@ -319,7 +319,8 @@ with tab_pred:
             labels = [f"{m['date']}（{WEEKDAY[pd.Timestamp(m['date']).dayofweek]}） {m['label']}" for m in meetings]
             if meetings:
                 c1, c2 = st.columns([3, 1])
-                i = c1.selectbox("開催", range(len(meetings)), index=next((k for k, m in enumerate(meetings) if m["date"] >= str(date.today())), len(meetings) - 1), format_func=lambda k: labels[k])
+                # 一覧から選ぶ形だと、スマホで下が切れるので、ボタンの並び（縦）にする
+                i = c1.radio("開催", range(len(meetings)), index=next((k for k, m in enumerate(meetings) if m["date"] >= str(date.today())), len(meetings) - 1), format_func=lambda k: labels[k])
                 if c2.button("最新のオッズに更新"):
                     jra_card.clear()
                 try:
