@@ -159,12 +159,25 @@ def predict_card(history, race, card, models, prepared=None):
         fut["p_win_mix"] = w / w.sum()
     else:
         fut["p_win_mix"] = np.nan
+    # 理論の補正: 無敗馬（1走以上して、すべて1着だった馬）は、市場の勝率より少なく勝つ傾向があったので（2024〜2026年、全無敗馬1,387頭で、市場の0.93倍）、
+    # 市場込みの勝率を UNBEATEN_FACTOR 倍して、合計1にそろえ直す
+    rec = past.groupby("horse_name")["win"].agg(["sum", "size"])
+    unb = fut["horse_name"].map(lambda n: bool(n in rec.index and rec.loc[n, "size"] >= 1 and rec.loc[n, "sum"] == rec.loc[n, "size"]))
+    fut["unbeaten"] = unb
+    if fut["p_win_mix"].notna().all():
+        w = fut["p_win_mix"] * np.where(unb, UNBEATEN_FACTOR, 1.0)
+        fut["p_win_theory"] = w / w.sum()
+    else:
+        fut["p_win_theory"] = np.nan
     if "place_pay" in models and use_odds:
         pp = models["place_pay"]
         fut["pay_hat"] = np.exp(pp["slope"] * np.log(fut["odds"]) + pp["icpt"]) * pp["smear"]
     else:
         fut["pay_hat"] = np.nan
     return fut.sort_values("p_top3" if use_odds else "p_ability", ascending=False)
+
+
+UNBEATEN_FACTOR = 0.93  # 無敗馬の勝率にかける倍率（検証: 実際の勝ち数 ÷ 市場から期待される勝ち数 ＝ 188 ÷ 203）
 
 
 # 特徴量の日本語名（画面の「なぜこの勝率になったか」用。無いものは、列名のまま出す）

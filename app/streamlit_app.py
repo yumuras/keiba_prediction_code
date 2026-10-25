@@ -238,6 +238,9 @@ def render_prediction(pred):
     why, info = P.explain_win(res, models, names_by_no[pick])
     row = res[res["umaban"].astype(int) == pick].iloc[0]
     st.markdown(f"**{pick}番 {names_by_no[pick]}**")
+    if bool(res[res["umaban"].astype(int) == pick].iloc[0].get("unbeaten", False)):
+        st.info("この馬は無敗（出走した全レースで1着）です。過去の検証（2024〜2026年）では、無敗馬は、市場から期待される勝ち数の0.93倍しか勝っていません（人気の無敗馬では0.83倍）。"
+                "確率の基準で「理論の補正」を選ぶと、市場込みの勝率を0.93倍して、買い目の確率に使います（弱い兆候です）。")
     c1, c2, c3 = st.columns(3)
     c1.metric("能力勝率（オッズなし）", f"{row['p_win'] * 100:.1f}%")
     if mixable:
@@ -278,12 +281,12 @@ def render_prediction(pred):
     st.markdown("#### ③ 買い目（券種別）")
     mix_ok = bool(use_odds and res["p_win_mix"].notna().all())
     c1, c2, c3 = st.columns([3, 3, 1])
-    bases = (["市場込み（オッズも使う）"] if mix_ok else []) + ["能力ベース（オッズを見ない）"]
+    bases = (["市場込み（オッズも使う）", "市場込み＋理論の補正（無敗馬を割引）"] if mix_ok else []) + ["能力ベース（オッズを見ない）"]
     basis = c1.radio("確率の基準", bases, horizontal=True, key="bet_basis")
     order = c2.radio("並び順", ["的中しやすい順", "期待値の目安が高い順"], horizontal=True, key="bet_order")
     topn = c3.selectbox("表示数", [3, 5, 10], index=1, key="bet_top")
     mix, sort = basis.startswith("市場込み"), ("ev" if order.startswith("期待値") else "prob")
-    p_basis = (res["p_win_mix"] if mix else res["p_win"]).to_numpy()
+    p_basis = (res["p_win_theory"] if "理論" in basis else res["p_win_mix"] if mix else res["p_win"]).to_numpy()
     umaban, names = res["umaban"].astype(int).to_numpy(), res["horse_name"].tolist()
     p_market = res["p_mkt_win"].to_numpy() if use_odds else None
     pct = lambda: st.column_config.NumberColumn(format="%.1f%%")
