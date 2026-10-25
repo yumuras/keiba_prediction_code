@@ -31,6 +31,19 @@ import train as T  # noqa: E402
 
 st.set_page_config(page_title="競馬予想モデル", page_icon="🏇", layout="wide")
 
+# スマホ向けの調整: セレクトボックスの一覧が画面の下に切れないよう、一覧の高さを画面の4割までにし、ページの下に余白を足す。タップしやすいよう、選択肢の高さも広げる
+st.markdown("""
+<style>
+@media (max-width: 640px) {
+  .block-container { padding-left: 1rem; padding-right: 1rem; padding-bottom: 50vh; }
+  div[data-baseweb="popover"] ul[role="listbox"] { max-height: 40vh !important; }
+  div[data-baseweb="popover"] li[role="option"] { padding-top: 0.7rem; padding-bottom: 0.7rem; }
+  div[data-baseweb="select"] > div { min-height: 3rem; }
+  button[kind="secondary"], button[kind="primary"] { min-height: 3rem; }
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 # ---- データ・モデルの読み込み（一度だけ） -----------------------------------------------------
 
