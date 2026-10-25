@@ -165,3 +165,62 @@ def predict_card(history, race, card, models, prepared=None):
     else:
         fut["pay_hat"] = np.nan
     return fut.sort_values("p_top3" if use_odds else "p_ability", ascending=False)
+
+
+# 特徴量の日本語名（画面の「なぜこの勝率になったか」用。無いものは、列名のまま出す）
+FEATURE_LABELS = {
+    "mean_behind": "過去の、勝ち馬とのタイム差（平均）", "horse_top3_rate": "過去の3着内率", "horse_mean_finish_rate": "過去の着順（平均）",
+    "body_weight": "馬体重", "horse_prev_finish_rate": "前走の着順", "jockey_top3_rate": "騎手の3着内率", "trainer_top3_rate": "調教師の3着内率",
+    "cond_mean_finish_rate": "今回と同じ条件での過去の着順", "best_finish_rate": "過去の最高の着順", "prev_behind": "前走の、勝ち馬とのタイム差",
+    "surface_mean_finish_rate": "同じ芝・ダートでの過去の着順", "horse_runs": "出走数", "days_since_last": "前走からの間隔（日）",
+    "carried_weight": "斤量", "age": "年齢", "waku": "枠", "umaban": "馬番", "distance": "距離", "mean_early_pos": "序盤の位置取り（平均）",
+    "mean_last_corner_pos": "最終コーナーの位置（平均）", "mean_gain": "直線で抜いた頭数（平均）", "front_rate": "逃げた割合", "prev_early_pos": "前走の序盤の位置",
+    "jockey_surf_top3_rate": "騎手の、芝・ダート別の3着内率", "horse_jockey_top3_rate": "この馬と騎手のコンビの3着内率",
+    "jockey_trainer_top3_rate": "騎手と調教師の組み合わせの3着内率", "prev_class_diff": "前走からのクラスの昇降", "jockey_change": "乗り替わり",
+    "body_weight_diff": "馬体重の増減", "num_runners": "頭数", "class_rank": "クラス", "wet_diff": "道悪での着順の差", "n_front_runners": "先行馬の頭数",
+}
+
+
+def feature_label(f):
+    base, z = (f[:-2], True) if f.endswith("_z") else (f, False)
+    name = FEATURE_LABELS.get(base, base)
+    return f"{name}（メンバー内の相対）" if z else name
+
+
+def explain_win(res, models, horse_name, top=7):
+    """能力勝率が、なぜその値になったかを調べる。
+
+    能力勝率（オッズなし）: 特徴量を1つずつ、そのレースの中央値（カテゴリは最頻値）に置き換えて、その馬の勝率がどれだけ変わるかを見る。
+    変化がマイナスなら、その特徴量が、勝率を押し上げている。特徴量どうしの重なりは、分けられない目安。
+    市場込みの勝率（オッズあり）: Benter型の式の、市場の項と能力の項。
+    戻り値: (特徴量ごとの表, 市場込みの分解の辞書。オッズが無いときは None)
+    """
+    res = res.reset_index(drop=True)
+    i = res.index[res["horse_name"] == horse_name][0]
+    m, sh, F = models["win_indep"], models["win_sharpen"], T.FEATURES_INDEP
+    X0 = res[F].copy()
+    for c in F:
+        if str(X0[c].dtype) != "category":
+            X0[c] = X0[c].astype(float)
+    raw = m.predict_proba(X0)[:, 1] ** sh
+    p = raw[i] / raw.sum()
+    rows = []
+    for f in F:
+        X = X0.copy()
+        col = X[f]
+        val = col.mode().iloc[0] if str(col.dtype) == "category" else col.median()
+        X.loc[i, f] = val
+        r2 = m.predict_proba(X)[:, 1][i] ** sh
+        rows.append((f, X0.loc[i, f], val, r2 / (raw.sum() - raw[i] + r2) - p))
+    t = pd.DataFrame(rows, columns=["f", "値", "中央", "d"])
+    t = t.reindex(t["d"].abs().sort_values(ascending=False).index).head(top)
+    t.insert(0, "特徴量", [feature_label(f) for f in t["f"]])
+    t["勝率への影響（ポイント）"] = -t["d"] * 100  # プラス = この特徴量が、勝率を押し上げている
+    mix = None
+    if res["p_win_mix"].notna().all() and "win_benter" in models:
+        a, b = models["win_benter"]
+        raw3 = models["top3_odds"].predict_ability(res)
+        lg = float(np.log(np.clip(raw3[i], 1e-4, 1 - 1e-4) / (1 - np.clip(raw3[i], 1e-4, 1 - 1e-4))))
+        mix = dict(mkt=float(res["p_mkt_win"][i]), mkt_term=float(a * np.log(res["mkt_prob"][i])), ability3=float(raw3[i]),
+                   ability_term=float(b * lg), p_win_mix=float(res["p_win_mix"][i]), a=float(a), b=float(b))
+    return t[["特徴量", "値", "中央", "勝率への影響（ポイント）"]].reset_index(drop=True), dict(p_ability=float(p), mix=mix)

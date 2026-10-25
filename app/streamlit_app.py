@@ -227,6 +227,43 @@ def render_prediction(pred):
     else:
         st.info("単勝オッズを全頭に入れると、能力勝率にオッズをかけた期待値と、市場との比較が出ます。")
 
+    # なぜこの勝率になったか（単勝の勝率。能力、オッズあり）
+    st.markdown("#### なぜこの勝率になったか（単勝の勝率）")
+    mixable = bool(use_odds and res["p_win_mix"].notna().all())
+    order = res.sort_values("p_win_mix" if mixable else "p_win", ascending=False)
+    names_by_no = dict(zip(res["umaban"].astype(int), res["horse_name"]))
+    pick = st.pills("馬番を選ぶ（人気の順に並べています）", [int(u) for u in order["umaban"]], selection_mode="single", default=int(order.iloc[0]["umaban"]),
+                    key=f"why_{race['date']}_{race['venue']}_{race['race_no']}")
+    pick = int(order.iloc[0]["umaban"]) if pick is None else pick
+    why, info = P.explain_win(res, models, names_by_no[pick])
+    row = res[res["umaban"].astype(int) == pick].iloc[0]
+    st.markdown(f"**{pick}番 {names_by_no[pick]}**")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("能力勝率（オッズなし）", f"{row['p_win'] * 100:.1f}%")
+    if mixable:
+        c2.metric("市場の勝率（オッズから）", f"{row['p_mkt_win'] * 100:.1f}%")
+        c3.metric("市場込みの勝率", f"{row['p_win_mix'] * 100:.1f}%")
+    st.markdown("**能力勝率（オッズなし）が、その値になった主な理由**")
+    show = why.copy()
+    show["値"] = show["値"].map(lambda v: f"{v:.3g}" if isinstance(v, (int, float)) else str(v))
+    show["中央"] = show["中央"].map(lambda v: f"{v:.3g}" if isinstance(v, (int, float)) else str(v))
+    show = show.rename(columns={"中央": "このレースの中央値"})
+    st.dataframe(show, hide_index=True, use_container_width=True, column_config={
+        "勝率への影響（ポイント）": st.column_config.NumberColumn(format="%+.1f", help="その特徴量を、このレースの中央値に置き換えたとき、勝率が下がる（プラス）／上がる（マイナス）幅")})
+    st.caption("特徴量を1つずつ、このレースの中央値に置き換えて、この馬の勝率がどれだけ変わるかを見ています。プラスは、その特徴量が勝率を押し上げているという意味です。"
+               "特徴量どうしの重なりは分けられない目安です。「メンバー内の相対」は、同じレースの他の馬と比べた値です。")
+    if info["mix"]:
+        m_ = info["mix"]
+        st.markdown("**市場込みの勝率（オッズあり）が、その値になった理由**")
+        st.markdown(
+            f"- 式：`{m_['a']:.2f} × log(市場の勝率) + ({m_['b']:.2f}) × logit(能力の3着内確率)` を、レース内で合計1にそろえます。\n"
+            f"- 市場の項：市場の勝率 {m_['mkt'] * 100:.1f}% → **{m_['mkt_term']:+.2f}**\n"
+            f"- 能力の項：能力の3着内確率 {m_['ability3'] * 100:.0f}% → **{m_['ability_term']:+.2f}**\n"
+            f"- 結果：市場込みの勝率 **{m_['p_win_mix'] * 100:.1f}%**")
+        st.caption("能力の項の係数が小さい（過去の検証で、能力モデルが市場に追加で足せる情報が、ほとんどなかったため）ので、市場込みの勝率は、市場の勝率にほぼ等しくなります。")
+    else:
+        st.info("単勝オッズを全頭に入れると、市場込みの勝率の理由も出ます。")
+
     # ③ 買い目（券種別）
     st.markdown("#### ③ 買い目（券種別）")
     mix_ok = bool(use_odds and res["p_win_mix"].notna().all())
