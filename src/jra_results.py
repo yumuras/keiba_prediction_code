@@ -85,11 +85,13 @@ def parse_race(page, date, odds_page=None):
     handicap = "ハンデ" in head
     seg = txt(d)
     cm = re.search(r"上り\s*\d?F.*?コーナー通過順位\s+(?=[1-4]コーナー)", seg)  # レース全体の通過順位（行の前に、「上り」の欄がある）
-    cpos = {}
+    seqs = []
     if cm:
         body = seg[cm.end():seg.find("払戻金", cm.end())]
-        for k, v in re.findall(r"([1-4])コーナー\s+([\d,\(\)\*\-=\s]+?)(?=\s*(?:[1-4]コーナー|$))", body):
-            cpos[int(k)] = {u: j + 1 for j, u in enumerate(int(n) for n in re.findall(r"\d+", v))}  # 書かれている順（成績PDFと同じ数え方）
+        # 見出しは「1コーナー」「3コーナー(2周目)」など。2周するレースは、4つより多く並ぶことがあるので、成績PDFと同じく、最後の4つを、最終コーナーから詰める
+        pat = r"[1-4]コーナー(?:\(\d周目\))?\s*([\d,\(\)\*\-=\s]+?)(?=\s*[1-4]コーナー|$)"
+        seqs = [[int(n) for n in re.findall(r"\d+", v)] for v in re.findall(pat, body)][-4:]
+    cpos = {4 - len(seqs) + 1 + i: {u: j + 1 for j, u in enumerate(sq)} for i, sq in enumerate(seqs)}  # 書かれている順（成績PDFと同じ数え方）
     win_pay, place_pay = payouts(txt(d.xpath('//div[@class="refund_area mt30"]')[0]))
     odds = {}
     if odds_page:
