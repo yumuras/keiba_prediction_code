@@ -96,7 +96,7 @@ def _parse_race(li):
             umaban=int(re.search(r"\d+", _text(num)).group()), waku=int(waku.group(1)) if waku else None,
             name=_text(tr.find('.//td[@class="horse"]')), sex={"せ": "セ"}.get(age[:1], age[:1]) if not age.startswith("せん") else "セ",
             age=int(re.search(r"\d+", age).group()), weight=float(re.search(r"[\d.]+", w).group()) if w else None,
-            reduction={"☆": 1.0, "▲": 3.0, "△": 2.0, "◇": 2.0, "★": 3.0}.get(next((c for c in jockey if c in "☆▲△◇★"), ""), 0.0),
+            reduction={"☆": 1.0, "▲": 3.0, "△": 2.0, "◇": 2.0, "★": 4.0}.get(next((c for c in jockey if c in "☆▲△◇★"), ""), 0.0),
             jockey=re.sub(r"[☆▲△◇★\s]", "", jockey), trainer=re.sub(r"\s", "", _text(tr.find('.//td[@class="trainer"]'))),
             odds=float(odds.group()) if odds else None, body_weight=int(bw.group(1)) if bw and bw.group(1) and int(bw.group(1)) > 200 else None,
             body_weight_diff=int(bw.group(2).replace("±", "0")) if bw and bw.group(2) else None,

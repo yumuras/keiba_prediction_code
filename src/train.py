@@ -81,7 +81,11 @@ TEST_MONTHS = tuple(range(3, 10))
 
 
 def load(paths=DATA):
-    df = pd.concat([pd.read_csv(p, dtype={"race_id": str}, parse_dates=["date"]) for p in paths], ignore_index=True)
+    frames = [pd.read_csv(p, dtype={"race_id": str}, parse_dates=["date"]).assign(live=Path(p).stem.startswith("all_live")) for p in paths]
+    df = pd.concat(frames, ignore_index=True)
+    # all_live_*.csv は、成績PDFが出るまでのつなぎ（src/jra_results.py）。PDF由来の行と同じレース（日付・競馬場・レース番号）が有れば、PDF由来のほうを使う
+    key = df["date"].dt.strftime("%Y-%m-%d") + df["venue"] + df["race_no"].astype(str)
+    df = df[~(df["live"] & key.isin(key[~df["live"]]))].drop(columns="live").reset_index(drop=True)
     # race_id は年ごとの通し番号で、年をまたぐと重複するので、年を付けて一意にする
     df["race_id"] = df["date"].dt.year.astype(str) + "_" + df["race_id"]
     if EXTRA:
