@@ -335,7 +335,11 @@ with tab_pred:
             day = json.loads(f.read_text(encoding="utf-8")) if f else None
         if day:
             races = day["races"]
-            j = st.selectbox("レース", range(len(races)), format_func=lambda k: f"{races[k]['race_no']}R {races[k]['start_time']} {races[k]['name']}（{races[k]['race_class']}・{races[k]['surface']}{races[k]['distance']}m・{len(races[k]['horses'])}頭）")
+            # レースは、一覧から選ぶ形だと、スマホで下が切れる／一覧の中でスクロールしにくいので、番号のボタンにして、選んだレースの内容は、下に1行で出す
+            j = st.pills("レース", range(len(races)), selection_mode="single", default=0, key=f"race_{day['date']}_{day.get('venue', '')}",
+                         format_func=lambda k: f"{races[k]['race_no']}R")
+            j = 0 if j is None else j
+            st.caption(f"{races[j]['race_no']}R {races[j]['start_time']} {races[j]['name']}（{races[j]['race_class']}・{races[j]['surface']}{races[j]['distance']}m・{len(races[j]['horses'])}頭）")
             c1, c2 = st.columns(2)
             going = c1.selectbox("馬場（当日の発表に合わせて）", P.GOINGS, index=P.GOINGS.index(day.get("going", "良")))
             weather = c2.selectbox("天候", P.WEATHERS, index=P.WEATHERS.index(day.get("weather", "晴")))
