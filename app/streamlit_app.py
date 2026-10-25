@@ -23,7 +23,9 @@ from sklearn.metrics import log_loss, roc_auc_score
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+import bets as B  # noqa: E402
 import jra_card as J  # noqa: E402
+import jra_odds as O  # noqa: E402
 import predict as P  # noqa: E402
 import train as T  # noqa: E402
 
@@ -67,6 +69,11 @@ def jra_card(cname):
     return J.fetch_card(cname)
 
 
+@st.cache_data(ttl=120, show_spinner="JRA公式から、実際のオッズを取り込み中…（約10秒）")
+def jra_real_odds(cname):
+    return O.fetch_odds(cname)
+
+
 def saved_cards():
     return sorted((ROOT / "cards").glob("*.json"), reverse=True)
 
@@ -88,7 +95,8 @@ def horses_to_card(horses, n=None):
 def race_dict(day, r, going, weather):
     """レースの条件（予想に渡す形）"""
     return dict(date=day["date"], venue=day["venue"], race_no=r["race_no"], start_time=r["start_time"], surface=r["surface"], distance=r["distance"],
-                course=P.course_string(r["surface"], r["turn"], r["inout"]), going=going, weather=weather, race_class=r["race_class"], handicap=r["handicap"])
+                course=P.course_string(r["surface"], r["turn"], r["inout"]), going=going, weather=weather, race_class=r["race_class"], handicap=r["handicap"],
+                odds_cname=r.get("odds_cname"))
 
 
 def card_from_history(race_id):
@@ -119,7 +127,7 @@ with st.sidebar:
         st.caption(f"学習: {m['date_min']}〜{m['date_max']}（{m['n_races']:,}レース）\n\n特徴量 {m['n_features']}個／作成 {m['trained_at']}")
     st.warning("このモデルは、公開されている成績情報の範囲では**オッズ（市場）を超えていません**。"
                "馬券で利益が出る保証はありません。参考として使ってください。", icon="⚠️")
-    st.markdown("結論と限界は、リポジトリの README.md に書いています。")
+    st.markdown("結論と限界は [README](https://github.com/yumuras/keiba_prediction#結論と限界) に書いています。")
 
 if models is None:
     st.error("学習済みモデルがありません。ターミナルで `uv run python scripts/train_model.py` を実行するか、下のボタンで学習してください（数分かかります）。")
@@ -133,8 +141,8 @@ if models is None:
 
 tab_pred, tab_back, tab_score, tab_rules, tab_help = st.tabs(["予想する", "過去のレースで確かめる", "モデルの成績", "予想の前提", "使い方"])
 
-def show_prediction(race, card):
-    """出馬表（日本語の見出しの表）を予想して、① 能力勝率 ② オッズを使った期待値 を表示する"""
+def compute_prediction(race, card):
+    """出馬表（日本語の見出しの表）を予想して、結果を session_state に保存する（選択を変えても、結果が消えないように）"""
     card = card.copy()
     card = card[card["馬名"].astype(str).str.strip() != ""].reset_index(drop=True)
     last, problems, filled = get_last(), [], []
@@ -161,6 +169,13 @@ def show_prediction(race, card):
         return
     with st.spinner("特徴量を作って予想しています…（10〜20秒）"):
         res = P.predict_card(get_history(), race, card, models, prepared=get_prepared())
+    st.session_state["pred"] = dict(res=res, filled=filled, race=race)
+
+
+def render_prediction(pred):
+    """保存した予想の結果を表示する（① 能力勝率 ② オッズを使った期待値 ③ 買い目）"""
+    res, filled, race = pred["res"], pred["filled"], pred["race"]
+    st.markdown(f"**予想したレース：{race['date']} {race['venue']}{race['race_no']}R**（{race['race_class']}・{race['surface']}{race['distance']}m）")
     if filled:
         st.caption("履歴から補った項目：" + "、".join(filled[:12]) + ("…" if len(filled) > 12 else ""))
     use_odds = bool(res["use_odds"].iloc[0])
@@ -193,11 +208,76 @@ def show_prediction(race, card):
             "3着内（オッズあり）": st.column_config.NumberColumn(format="%.0f%%"), "市場の3着内": st.column_config.NumberColumn(format="%.0f%%")})
         st.warning(
             "**この期待値は、買い目の根拠にしないでください。** 検証（2026年3〜9月、約2.7万頭）では、能力勝率 × オッズ が1を超えた馬は全体の53%"
-            "（1レースあたり約7頭）もいて、その馬の実際の単勝回収率は**70%**でした。期待値の高さと回収率には関係が見られず（期待値1.2〜1.5の馬は56%、"
+            "（1レースあたり約7頭）もいて、その馬の実際の単勝回収率は70%でした。期待値の高さと回収率には関係が見られず（期待値1.2〜1.5の馬は56%、"
             "2.0以上の馬は78%）、オッズを見ずに決めた勝率は、人気薄を市場より高く見積もるため、期待値が大きく出すぎます。"
             "市場との比較は、右の「3着内（オッズあり）」と「市場の3着内」を見てください。", icon="⚠️")
     else:
         st.info("単勝オッズを全頭に入れると、能力勝率にオッズをかけた期待値と、市場との比較が出ます。")
+
+    # ③ 買い目（券種別）
+    st.markdown("#### ③ 買い目（券種別）")
+    mix_ok = bool(use_odds and res["p_win_mix"].notna().all())
+    c1, c2, c3 = st.columns([3, 3, 1])
+    bases = (["市場込み（オッズも使う）"] if mix_ok else []) + ["能力ベース（オッズを見ない）"]
+    basis = c1.radio("確率の基準", bases, horizontal=True, key="bet_basis")
+    order = c2.radio("並び順", ["的中しやすい順", "期待値の目安が高い順"], horizontal=True, key="bet_order")
+    topn = c3.selectbox("表示数", [3, 5, 10], index=1, key="bet_top")
+    mix, sort = basis.startswith("市場込み"), ("ev" if order.startswith("期待値") else "prob")
+    p_basis = (res["p_win_mix"] if mix else res["p_win"]).to_numpy()
+    umaban, names = res["umaban"].astype(int).to_numpy(), res["horse_name"].tolist()
+    p_market = res["p_mkt_win"].to_numpy() if use_odds else None
+    pct = lambda: st.column_config.NumberColumn(format="%.1f%%")
+
+    # 実際のオッズ（JRA公式。馬連・ワイド・馬単・3連複・3連単を含む）。ボタンを押したときだけ取り込む（約10秒、6ページ）
+    rkey = (race["date"], race["venue"], race["race_no"])
+    real = st.session_state.get("real_odds")
+    real = real["odds"] if real and real["key"] == rkey else None
+    if race.get("odds_cname"):
+        b1, b2 = st.columns([2, 5])
+        if b1.button("実際のオッズを取り込む" if real is None else "オッズを取り直す"):
+            jra_real_odds.clear() if real is not None else None
+            st.session_state["real_odds"] = dict(key=rkey, odds=jra_real_odds(race["odds_cname"]))
+            st.rerun()
+        if real is not None:
+            b2.caption(f"実際のオッズ（JRA公式、{real['fetched_at']} 時点）で、期待値を出しています。")
+        else:
+            b2.caption("今は、「基準の確率 ÷ 市場の確率 × 払戻率」の目安です。実際のオッズ（馬連・3連単など）を取り込むと、確率 × オッズ の期待値になります。")
+    pb3 = (res["p_top3"] if mix else res["p_ability"]).to_numpy()
+    for tab, bet in zip(st.tabs(B.BETS), B.BETS):
+        with tab:
+            if real is not None:
+                t = B.real_table(umaban, names, p_basis, pb3, real, bet, topn, sort)
+                if len(t):
+                    t = t.copy()
+                    t["確率"] = t["確率"] * 100
+                    st.dataframe(t, hide_index=True, use_container_width=True, column_config={"確率": pct()})
+                    if sort == "ev":
+                        st.caption(f"期待値の順に並べるときは、確率が低すぎる買い目（{B.MIN_PROB[bet]:.1%}未満）を除いています。")
+                else:
+                    st.info("この券種のオッズが取り込めていません（発売前、または、取消・除外の馬がいます）。")
+                continue
+            if bet == "単勝":
+                t = B.single_table(umaban, names, p_basis, p_market, res["odds"].to_numpy() if use_odds else None, "単勝", topn, sort)
+            elif bet == "複勝":
+                pb = (res["p_top3"] if mix else res["p_ability"]).to_numpy()
+                t = B.single_table(umaban, names, pb, p_market, res["odds"].to_numpy() if use_odds else None, "複勝", topn, sort,
+                                   pay_hat=res["pay_hat"].to_numpy(), p_market_top3=res["p_mkt3"].to_numpy())
+            else:
+                t = B.combo_table(umaban, names, p_basis, p_market, bet, topn, sort)
+            t = t.copy()
+            for c in ("確率", "市場の確率"):
+                if c in t:
+                    t[c] = t[c] * 100
+            st.dataframe(t, hide_index=True, use_container_width=True, column_config={
+                "確率": pct(), "市場の確率": pct(), "期待値の目安": st.column_config.NumberColumn(format="%.2f", help="1を超えれば、平均的には買った額より多く戻る計算（目安）"),
+                "単勝オッズ": st.column_config.NumberColumn(format="%.1f")})
+            if sort == "ev" and use_odds:
+                st.caption(f"期待値の順に並べるときは、確率が低すぎる買い目（{B.MIN_PROB[bet]:.1%}未満）を除いています。払戻率は{B.RATES[bet]:.1%}です。")
+    st.warning(
+        "**買い目の根拠にはしないでください。** 検証（2026年3〜9月、2,004レース）では、馬連・馬単・3連複・3連単のどれでも、「市場＋能力モデル」の確率は、"
+        "市場（オッズ）だけの確率と区別がつきませんでした。単勝では、期待値が1を超えた馬の実際の回収率が約70%で、期待値の高さと回収率に関係が見られませんでした。"
+        "実際のオッズを取り込む前の期待値の目安は、「基準の確率 ÷ 市場の確率 × 払戻率」で出した値で、"
+        "市場の確率と同じなら、払戻率（72.5〜80%）にしかなりません。実際のオッズで出した期待値（確率 × オッズ）も、確率が市場と同じ程度の精度なので、1を超える買い目があっても、見積もりの誤差による可能性が高いです。組み合わせの確率は、1着・2着・3着の順位を、勝率から出す標準的な方法（Harville）による近似です。", icon="⚠️")
 
     st.bar_chart(t1.set_index("馬名")[["能力勝率"]])
     new = res[res["horse_runs"] == 0]["horse_name"].tolist()
@@ -297,7 +377,9 @@ with tab_pred:
             show = card[["馬番", "枠", "馬名", "性別", "年齢", "斤量", "騎手", "調教師", "単勝オッズ"]]
             st.dataframe(show, hide_index=True, use_container_width=True, height=min(38 * (len(show) + 1), 420))
         if st.button("予想する", type="primary"):
-            show_prediction(race, card)
+            compute_prediction(race, card)
+    if st.session_state.get("pred"):
+        render_prediction(st.session_state["pred"])
 
 # ---- 過去のレースで確かめる -----------------------------------------------------------------------
 

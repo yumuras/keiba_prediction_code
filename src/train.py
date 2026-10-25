@@ -25,6 +25,8 @@ from sklearn.model_selection import GroupKFold
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = sorted((ROOT / "data").glob("all_*.csv"))  # 年ごとの成績CSV（all_2025.csv, all_2026.csv, ...）
+EXTRA = sorted((ROOT / "data").glob("race_extra_*.csv"))  # scripts/extract_race_extra.py で作る（年齢条件・ハロンタイム）
+LATERAL = sorted((ROOT / "data").glob("lateral_*.csv"))  # scripts/extract_lateral.py で作る
 WEATHER = sorted((ROOT / "data").glob("weather_*.csv"))  # scripts/fetch_weather.py で取得
 
 CATEGORICAL = ["venue", "surface", "going", "race_class", "sex", "weather", "turn", "inout"]
@@ -53,6 +55,15 @@ NUMERIC = [
 RELATIVE = ["jockey_top3_rate", "trainer_top3_rate", "horse_mean_finish_rate", "mean_behind",
             "carried_weight", "body_weight", "age", "horse_top3_rate", "best_finish_rate", "mean_mkt_prob",
             "mean_early_pos", "cond_mean_finish_rate"]
+# 内外の位置（通過順位の（ ）の中の、内から外の並び。0 = 内、1 = 外）と、並走のかたまりの大きさ。
+# 検証（2026年3〜9月）で精度が変わらなかった（AUC 0.7861 → 0.7862）ので、モデルには入れていない。列は add_features で作る
+LATERAL_FEATURES = ["prev_lat4", "mean_lat4", "mean_grp4"]
+# 年齢条件・古馬混合戦、ペース・展開（ハロンタイム）、レースレベル（前走の相手のその後の成績）も、同じ検証で精度が変わらなかったので、モデルには入れていない
+EXPERIMENTAL_FEATURES = {
+    "年齢条件・古馬混合": ["age_limited", "age_over_cond", "age_min", "age_open", "mixed_mean_finish_rate", "mixed_runs"],
+    "ペース・展開": ["prev_pace_rel", "prev_pace_load", "mean_pace_load"],
+    "レースレベル": ["rival_level_prev", "rival_n_prev"],
+}
 FEATURES = CATEGORICAL + NUMERIC + [f"{c}_z" for c in RELATIVE]  # 能力モデルの特徴量（オッズなし）
 
 # クラスの格（昇級・降級を数値で表すため）
@@ -73,6 +84,14 @@ def load(paths=DATA):
     df = pd.concat([pd.read_csv(p, dtype={"race_id": str}, parse_dates=["date"]) for p in paths], ignore_index=True)
     # race_id は年ごとの通し番号で、年をまたぐと重複するので、年を付けて一意にする
     df["race_id"] = df["date"].dt.year.astype(str) + "_" + df["race_id"]
+    if EXTRA:
+        ex = pd.concat([pd.read_csv(p, dtype={"race_id": str}).assign(year=p.stem[-4:]) for p in EXTRA], ignore_index=True)
+        ex["race_id"] = ex["year"] + "_" + ex["race_id"]
+        df = df.merge(ex.drop(columns="year").drop_duplicates("race_id"), on="race_id", how="left")
+    if LATERAL:
+        lat = pd.concat([pd.read_csv(p, dtype={"race_id": str}).assign(year=p.stem[-4:]) for p in LATERAL], ignore_index=True)
+        lat["race_id"] = lat["year"] + "_" + lat["race_id"]
+        df = df.merge(lat.drop(columns=["year", "horse_name"]), on=["race_id", "umaban"], how="left")
     return prepare(df)
 
 
@@ -111,6 +130,18 @@ def prepare(df):
     df["last_corner_pos"] = (df["corner4"] - 1) / (df["num_runners"] - 1)
     df["is_front"] = (first == 1).astype(float).where(first.notna())  # 逃げたか
     df["gain"] = (df["corner4"] - df["finish"]) / df["num_runners"]  # 最終コーナーから何頭抜いたか
+    for c in ("corner4_lat", "corner4_grp"):  # 内外の位置の列が無い行（出馬表など）は、空欄にそろえる
+        if c not in df:
+            df[c] = np.nan
+
+    # ハロンタイム・年齢条件（PDFのレースごとの情報。無い行は空欄）
+    for c in ("age_min", "age_open", "laps", "last3f"):
+        if c not in df:
+            df[c] = np.nan
+    first3 = df["laps"].map(lambda t: sum(float(x) for x in t.split("―")[:3]) if isinstance(t, str) and len(t.split("―")) >= 3 else np.nan)
+    df["pace_rel"] = (first3 - df["last3f"]) / (first3 + df["last3f"])  # マイナス = 前半が速い（ハイペース）、プラス = 前半が遅い（スロー）
+    df["age_limited"] = (df["age_open"] == 0).astype(float).where(df["age_open"].notna())  # 1 = その年齢だけの限定戦
+    df["age_over_cond"] = df["age"] - df["age_min"]
 
     # 気象: 発走時刻の直前の正時の観測値（15:30発走なら15時の値）と、その日の発走までの降水量
     if WEATHER:
@@ -135,6 +166,28 @@ def prior_stats(df, key, prefix, k=20, prior=None):
     return df.merge(daily[[key, "date", f"{prefix}_runs", f"{prefix}_top3_rate"]], on=[key, "date"], how="left")
 
 
+def rival_level(df, min_n=3):
+    """前走のレースレベル: 前走で戦った相手が、その後のレース（今回の日付より前のもの）で、人気より良い着順だったか。
+
+    相手の「次走の着順率が、人気の順位率よりどれだけ良かったか」の平均。プラス = 相手が、その後に人気以上の成績（レースレベルが高かった）。
+    今回の日付より前に終わったレースの結果だけを使う（未来は見ない）。
+    """
+    d = df[["race_id", "horse_name", "date", "finish_rate", "popularity", "num_runners", "top3"]].sort_values(["horse_name", "date"])
+    g = d.groupby("horse_name")
+    rv = pd.DataFrame({"race_id": d["race_id"], "horse_name": d["horse_name"], "next_date": g["date"].shift(-1),
+                       "perf": (g["popularity"].shift(-1) / g["num_runners"].shift(-1) - g["finish_rate"].shift(-1))}).dropna()
+    t = df[["race_id", "horse_name", "date"]].sort_values(["horse_name", "date"])
+    t["prev_race"] = t.groupby("horse_name")["race_id"].shift(1)
+    t = t.dropna(subset=["prev_race"]).reset_index()
+    m = t.merge(rv, left_on="prev_race", right_on="race_id", suffixes=("", "_rv"))
+    m = m[(m["horse_name"] != m["horse_name_rv"]) & (m["next_date"] < m["date"])]
+    agg = m.groupby("index")["perf"].agg(["mean", "size"])
+    ok = agg["size"] >= min_n
+    df["rival_level_prev"] = agg["mean"].where(ok).reindex(df.index)
+    df["rival_n_prev"] = agg["size"].reindex(df.index)
+    return df
+
+
 def add_features(df, prior=None):
     df = prior_stats(df, "jockey", "jockey", prior=prior)
     df = prior_stats(df, "trainer", "trainer", prior=prior)
@@ -151,12 +204,21 @@ def add_features(df, prior=None):
     df = df.sort_values(["horse_name", "date"])
     g = df.groupby("horse_name")
     past_mean = lambda s: s.shift(1).expanding().mean()
+
+    def pm(col, keys="horse_name"):
+        """グループごとの、前走までの平均（空欄は除く）。transform(past_mean) と同じ値を、速く出す"""
+        v = df[col]
+        n = v.notna().astype(int)
+        v0 = v.fillna(0)
+        gk = df[keys] if isinstance(keys, str) else [df[k] for k in keys]
+        prev_n = n.groupby(gk).cumsum() - n
+        return (v0.groupby(gk).cumsum() - v0) / prev_n.replace(0, np.nan)
     df["horse_runs"] = g.cumcount()
     df["horse_prev_finish_rate"] = g["finish_rate"].shift(1)
-    df["horse_mean_finish_rate"] = g["finish_rate"].transform(past_mean)
+    df["horse_mean_finish_rate"] = pm("finish_rate")
     df["days_since_last"] = g["date"].diff().dt.days
     df["prev_behind"] = g["behind"].shift(1)
-    df["mean_behind"] = g["behind"].transform(past_mean)
+    df["mean_behind"] = pm("behind")
     df["prev_mkt_prob"] = g["mkt_prob"].shift(1)  # 前走で市場からどれだけ評価されていたか
     df["prev_same_surface"] = (g["surface"].shift(1) == df["surface"]).astype(int)
     df["prev_dist_diff"] = df["distance"] - g["distance"].shift(1)
@@ -164,21 +226,29 @@ def add_features(df, prior=None):
     past_top3 = g["top3"].transform(lambda s: s.shift(1).expanding().sum()).fillna(0)
     df["horse_top3_rate"] = (past_top3 + 0.2 * 3) / (df["horse_runs"] + 3)
     df["best_finish_rate"] = g["finish_rate"].transform(lambda s: s.shift(1).expanding().min())
-    df["mean_mkt_prob"] = g["mkt_prob"].transform(past_mean)
+    df["mean_mkt_prob"] = pm("mkt_prob")
     # 前走からの変化: 昇級(+)/降級(-)、乗り替わり、斤量の増減
     df["prev_class_diff"] = df["class_rank"] - g["class_rank"].shift(1)
     prev_jockey = g["jockey"].shift(1)
     df["jockey_change"] = (prev_jockey != df["jockey"]).astype(float).where(prev_jockey.notna())
     df["carried_weight_diff"] = df["carried_weight"] - g["carried_weight"].shift(1)
     # コース適性: 同じ芝/ダートでの過去平均着順率、同じ競馬場での出走数
-    df["surface_mean_finish_rate"] = df.groupby(["horse_name", "surface"])["finish_rate"].transform(past_mean)
+    df["surface_mean_finish_rate"] = pm("finish_rate", ["horse_name", "surface"])
     df["venue_runs"] = df.groupby(["horse_name", "venue"]).cumcount()
     # 脚質: 前走・過去平均の序盤の位置（0 = 先頭）、逃げた割合、最終コーナーの位置、直線で抜いた頭数
     df["prev_early_pos"] = g["early_pos"].shift(1)
-    df["mean_early_pos"] = g["early_pos"].transform(past_mean)
-    df["front_rate"] = g["is_front"].transform(past_mean)
-    df["mean_last_corner_pos"] = g["last_corner_pos"].transform(past_mean)
-    df["mean_gain"] = g["gain"].transform(past_mean)
+    df["mean_early_pos"] = pm("early_pos")
+    df["front_rate"] = pm("is_front")
+    df["mean_last_corner_pos"] = pm("last_corner_pos")
+    df["mean_gain"] = pm("gain")
+    # 展開: 前走のペースと、その中でどこを走ったか（ハイペースを先行 = 負担が大きい）
+    df["prev_pace_rel"] = g["pace_rel"].shift(1)
+    df["pace_load"] = -df["pace_rel"] * (1 - df["early_pos"])  # プラス = ハイペースを前で走った、マイナス = スローを後ろで走った
+    df["prev_pace_load"] = g["pace_load"].shift(1)
+    df["mean_pace_load"] = pm("pace_load")
+    df["prev_lat4"] = g["corner4_lat"].shift(1)
+    df["mean_lat4"] = pm("corner4_lat")
+    df["mean_grp4"] = pm("corner4_grp")
 
     # 道悪適性: 道悪（稍重・重・不良）と良馬場、それぞれでの前走までの平均
     def past_mean_when(col, cond):
@@ -192,10 +262,13 @@ def add_features(df, prior=None):
     df["wet_diff"] = df["wet_mean_finish_rate"] - df["dry_mean_finish_rate"]  # プラス = 道悪で着順が悪くなる
     df["wet_behind_diff"] = (past_mean_when("behind", df["wet"])[0]
                              - past_mean_when("behind", 1 - df["wet"])[0])   # 道悪での勝ち馬とのタイム差の広がり
+    # 古馬混合戦（「以上」の条件）での、過去の平均着順率。古馬と走った経験が無い馬は空欄
+    df["mixed_mean_finish_rate"], df["mixed_runs"] = past_mean_when("finish_rate", (df["age_open"] == 1).astype(int))
     df["wet_fit_today"] = df["wet_diff"] * df["wet"]  # 今日が道悪のときだけ値が入る（良馬場なら0）
     # 今日と同じ条件（芝/ダート × 道悪/良）での過去平均着順率
-    df["cond_mean_finish_rate"] = df.groupby(["horse_name", "surface", "wet"])["finish_rate"].transform(past_mean)
+    df["cond_mean_finish_rate"] = pm("finish_rate", ["horse_name", "surface", "wet"])
     df = df.sort_values(["date", "venue", "race_no", "umaban"]).reset_index(drop=True)
+    df = rival_level(df)
 
     # このレースに先行タイプ（過去平均で前から1/4以内）が何頭いるか。多いとペースが速くなりやすい
     df["n_front_runners"] = (df["mean_early_pos"] < 0.25).groupby(df["race_id"]).transform("sum")

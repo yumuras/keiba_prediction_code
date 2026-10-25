@@ -41,6 +41,28 @@ def fit_win_sharpen(df):
     return float(E.fit_conditional_logit(np.log(d[["p"]].clip(1e-6).to_numpy()), starts, d["win"].to_numpy(), [1.0])[0])
 
 
+def fit_win_benter(df, top3_model):
+    """市場込みの勝率（Benter型）の係数 (a, b)。
+
+    P(馬iが勝つ) = softmax_i( a × log(市場の勝率_i) + b × 能力モデル（3着内）のlogit_i )  （レースの中で）。
+    能力モデルのlogitには、学習データに対する out-of-fold の予測を使う（evaluate.py と同じ方法）。
+    """
+    from scipy.special import logit
+
+    ok = df.groupby("race_id")["mkt_prob"].transform(lambda s: s.notna().all()).to_numpy()
+    d = df[ok]
+    X = np.c_[np.log(d["mkt_prob"].to_numpy()), logit(np.clip(top3_model.oof[ok], 1e-4, 1 - 1e-4))]
+    return E.fit_conditional_logit(X, E.race_starts(d["race_id"]), d["win"].to_numpy(), [1.0, 0.0])
+
+
+def fit_place_pay(df):
+    """3着以内に入ったときの複勝払戻（100円あたり）の予想: log(払戻) = slope × log(単勝オッズ) + icpt。smear は、対数を戻すときの補正"""
+    placed = df[df["place_payout"] > 0]
+    slope, icpt = np.polyfit(np.log(placed["odds"]), np.log(placed["place_payout"]), 1)
+    smear = float(np.exp(np.log(placed["place_payout"]) - (slope * np.log(placed["odds"]) + icpt)).mean())
+    return dict(slope=float(slope), icpt=float(icpt), smear=smear)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-backtest", action="store_true")
@@ -51,8 +73,11 @@ def main():
     print(f"特徴量 {len(df)}行 {time.time() - t0:.0f}s", flush=True)
 
     P.MODEL_DIR.mkdir(exist_ok=True)
+    top3_odds = T.Top3Model(use_odds=True).fit(df)
     models = {
-        "top3_odds": T.Top3Model(use_odds=True).fit(df),
+        "top3_odds": top3_odds,
+        "win_benter": [float(x) for x in fit_win_benter(df, top3_odds)],
+        "place_pay": fit_place_pay(df),
         "top3_noodds": T.Top3Model(use_odds=False).fit(df),
         # 能力勝率: オッズ・他人の評価（過去のオッズ由来の特徴量）を使わない（docs/principles.md の15）
         "win_indep": T.ability_model().fit(df[T.FEATURES_INDEP], df["win"]),

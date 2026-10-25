@@ -116,6 +116,12 @@ def fetch_card(cname):
     head = _text(_cls(doc, "date"))
     d = re.search(r"(\d{4})年(\d+)月(\d+)日", head)
     races = [_parse_race(li) for li in doc.xpath('//ul[contains(@class,"syutsuba_unit_list")]/li[starts-with(@id,"syutsuba_")]')]
+    # 各レースのオッズのページ（単勝・複勝）の cname。レース選択のページにある（例 pw151ouS308202604091120261025Z/DC）。jra_odds.fetch_odds に渡す
+    odds = {}
+    for m in re.finditer(r"(pw151ou\w\w\d{2}\d{4}\d{2}\d{2}(\d{2})\d{8}Z/[0-9A-F]{2})", page):
+        odds.setdefault(int(m.group(2)), m.group(1))
+    for r in races:
+        r["odds_cname"] = odds.get(r["race_no"])
     venue = next((v for v in VENUES if v in head), "")
     return dict(date=f"{d.group(1)}-{int(d.group(2)):02d}-{int(d.group(3)):02d}", venue=venue, label=head, going="良", weather="晴",
                 note=f"JRA公式の出馬表（{head}）。単勝オッズは取得時点の値。", races=races)

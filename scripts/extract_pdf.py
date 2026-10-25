@@ -81,6 +81,8 @@ def parse_headers(text):
         if not m:
             continue
         block = "\n".join(lines[i:i + 8])
+        nxt = next((j for j in range(i + 1, len(lines)) if head_re.search(lines[j])), len(lines))
+        seg = z2h("\n".join(lines[i:nxt]))
         after = ln[m.end():] + "\n" + "\n".join(lines[i + 1:i + 4])
         dist = re.search(r"(\d)，(\d{3})", after)
         going = m.group(5)
@@ -105,7 +107,13 @@ def parse_headers(text):
             cls = "L"  # リステッド競走
         if cls is None:
             cls = "オープン"  # 特別名のみでクラス表記のないオープン競走
+        am = re.search(r"([2-9])歳(以上)?", ln[m.end():] + " " + " ".join(lines[i + 1:i + 4]))
+        hm = re.search(r"ハロンタイム[ \t]*([\d.―]+)", seg)
+        um = re.search(r"上り\s*4F\s*([\d.]+)\s*―\s*3F\s*([\d.]+)", seg)
         out.append(dict(
+            age_min=int(am.group(1)) if am else None, age_open=int(bool(am and am.group(2))) if am else None,
+            laps=hm.group(1).strip().replace(" ", "") if hm else None,
+            last3f=float(um.group(2)) if um else None,
             race_id=m.group(1),
             date=f"{m.group(6)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}",
             venue=m.group(8), kai=int(m.group(7)), nichi=int(m.group(9)),
@@ -130,7 +138,7 @@ def header_ys(chars, off):
     return sorted(ys)
 
 
-def parse_corners(chars, off, lo, hi):
+def parse_corners(chars, off, lo, hi, raw=False):
     """『通過順位』欄を読み、コーナーごとの馬番の並び（先頭から）を、書かれている順のリストで返す
 
     例「1  7−6（9，8）3，2 …」→ [[7, 6, 9, 8, 3, 2, …], …]
@@ -153,7 +161,7 @@ def parse_corners(chars, off, lo, hi):
     for c in cand:
         key = next((k for k in rows if c["top"] - k <= 3), c["top"])
         rows.setdefault(key, []).append(c)
-    seqs, current = [], {}
+    seqs, raws, current = [], [], {}
     for y in sorted(rows):
         rc = sorted(rows[y], key=lambda c: c["x0"])
         text = "".join(ct(c) for c in rc)
@@ -167,13 +175,40 @@ def parse_corners(chars, off, lo, hi):
             # コーナー番号は、すぐ後ろの文字から離れて置かれた1文字
             if len(cs) > 1 and cs[1]["x0"] - cs[0]["x0"] > 8:
                 seqs.append([])
+                raws.append("")
                 current[col] = len(seqs) - 1
                 cs = cs[1:]
             elif col not in current:
                 continue
             nums = re.sub(r"\D+", " ", "".join(ct(c) for c in cs)).split()
+            raws[current[col]] += "".join(ct(c) for c in cs)
             seqs[current[col]].extend(int(n) for n in nums)  # 番号が無い行は前の行からの続き
-    return seqs
+    return raws if raw else seqs
+
+
+def corner_lateral(raw):
+    """通過順位の文字列から、馬番 → (かたまりの頭数, かたまりの中の位置)。
+
+    （ ）の中は、並走している馬のかたまりで、内側の馬から外側の馬の順に書かれている。
+    位置は 0（いちばん内）〜 1（いちばん外）。かたまりが無い馬（1頭だけで書かれた馬）は、頭数1・位置は空欄。
+    「（）」は、「）（」（かたまりが続く）が、1つの記号として読まれたもの。
+    """
+    raw = raw.replace("（）", "）（").replace("＝", "−")
+    out, group = {}, None
+    for tok in re.findall(r"\d+|（|）|[^\d（）]", raw):
+        if tok == "（":
+            group = []
+        elif tok == "）":
+            if group:
+                for k, u in enumerate(group):
+                    out[u] = (len(group), k / (len(group) - 1) if len(group) > 1 else None)
+            group = None
+        elif tok.isdigit():
+            if group is None:
+                out[int(tok)] = (1, None)
+            else:
+                group.append(int(tok))
+    return out
 
 
 def parse_payouts(text):
@@ -290,6 +325,8 @@ def parse_pdf(path):
                     pay = pays.get(h["race_id"])
                     seqs = parse_corners(chars, off, lo, hi)[-4:]
                     cpos = {4 - len(seqs) + 1 + i: {u: j + 1 for j, u in enumerate(seq)} for i, seq in enumerate(seqs)}
+                    raws = parse_corners(chars, off, lo, hi, raw=True)[-4:]
+                    clat = {4 - len(raws) + 1 + i: corner_lateral(r) for i, r in enumerate(raws)}
                     for y in row_ys:
                         if not (lo < y < hi):
                             continue
@@ -328,6 +365,8 @@ def parse_pdf(path):
                             time=t, time_sec=to_sec(t),
                             odds=float(r["odds"]) if re.fullmatch(r"\d+\.\d", r["odds"]) else None,
                             **{f"corner{k}": cpos.get(k, {}).get(int(r["umaban"])) for k in (1, 2, 3, 4)},
+                            **{f"corner{k}_{n}": clat.get(k, {}).get(int(r["umaban"]), (None, None))[i]
+                               for k in (1, 2, 3, 4) for i, n in enumerate(("grp", "lat"))},
                             # 払戻（100円あたり）。着順に対応させる。払戻が無い馬は0、払戻を読めなかったレースは空欄
                             win_payout=None if pay is None else (pay["win"][0] if pos == 1 and pay["win"] else 0),
                             place_payout=None if pay is None else (pay["place"][pos - 1] if 0 < pos <= len(pay["place"]) else 0),

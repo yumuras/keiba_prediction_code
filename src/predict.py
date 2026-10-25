@@ -12,6 +12,7 @@
 from pathlib import Path
 
 import joblib
+from scipy.special import logit
 import numpy as np
 import pandas as pd
 
@@ -149,4 +150,18 @@ def predict_card(history, race, card, models, prepared=None):
         fut["p_mkt3"] = np.nan
         fut["p_mkt_win"] = np.nan
     fut["use_odds"] = use_odds
+    # 市場込みの勝率（Benter型。オッズが全頭そろっているときだけ）と、複勝の予想払戻（3着以内に入ったときの、100円あたりの払戻）
+    if use_odds and "win_benter" in models:
+        a, b = models["win_benter"]
+        raw = models["top3_odds"].predict_ability(fut)
+        score = a * np.log(fut["mkt_prob"].to_numpy()) + b * logit(np.clip(raw, 1e-4, 1 - 1e-4))
+        w = np.exp(score - score.max())
+        fut["p_win_mix"] = w / w.sum()
+    else:
+        fut["p_win_mix"] = np.nan
+    if "place_pay" in models and use_odds:
+        pp = models["place_pay"]
+        fut["pay_hat"] = np.exp(pp["slope"] * np.log(fut["odds"]) + pp["icpt"]) * pp["smear"]
+    else:
+        fut["pay_hat"] = np.nan
     return fut.sort_values("p_top3" if use_odds else "p_ability", ascending=False)
