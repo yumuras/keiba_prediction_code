@@ -112,6 +112,23 @@ def race_dict(day, r, going, weather):
                 odds_cname=r.get("odds_cname"))
 
 
+@st.cache_data
+def race_videos():
+    """重賞のレース映像（JRA公式YouTube）。race_id（年付き）→ (タイトル, URL)。data/videos.csv は scripts/build_videos.py で作る"""
+    f = ROOT / "data" / "videos.csv"
+    if not f.exists():
+        return {}
+    v = pd.read_csv(f, dtype={"race_id": str})
+    return {r.race_id: (r.title, r.url) for r in v.itertuples()}
+
+
+def show_video(race_id):
+    """そのレースに映像があれば、リンクを出す（重賞のみ）"""
+    hit = race_videos().get(race_id)
+    if hit:
+        st.link_button(f"▶ レース映像（JRA公式YouTube）：{hit[0]}", hit[1])
+
+
 def card_from_history(race_id):
     """履歴の1レースを、取り込みと同じ形（条件と馬の一覧）にする（練習・やり直し用）"""
     g = get_history()
@@ -435,6 +452,7 @@ with tab_pred:
         hv = hd[hd["venue"] == v]
         rn = c3.selectbox("レース", sorted(hv["race_no"].unique()), key="pick_race", format_func=lambda x: f"{x}R")
         day, r_ = card_from_history(hv[hv["race_no"] == rn]["race_id"].iloc[0])
+        show_video(hv[hv["race_no"] == rn]["race_id"].iloc[0])
         race, card = race_dict(day, r_, day["going"], day["weather"]), horses_to_card(r_["horses"])
         st.info("日付より前の履歴だけで予想します（このレースの結果は使いません）。ただし、最終モデルはこのレースの結果を学習しているので、予想は実際より良く見えます。"
                 "公平な確認は「過去のレースで確かめる」のタブです。")
@@ -493,6 +511,7 @@ with tab_back:
         g = bv[bv["race_no"] == rn].copy()
         r0 = g.iloc[0]
         st.markdown(f"**{d} {v}{rn}R** {r0['race_class']}・{r0['surface']}{int(r0['distance'])}m・{r0['going']}・{int(r0['num_runners'])}頭")
+        show_video(r0["race_id"])
         top_m = g.nlargest(3, "p_top3")
         top_k = g.nlargest(3, "p_mkt3")
         c1, c2 = st.columns(2)
@@ -502,7 +521,7 @@ with tab_back:
         st.dataframe(pd.DataFrame({
             "着順": show["finish"].map(lambda x: "—" if pd.isna(x) else int(x)), "馬番": show["umaban"].astype(int), "馬名": show["horse_name"],
             "人気": show["popularity"], "単勝オッズ": show["odds"], "市場の3着内": show["p_mkt3"] * 100, "モデル（オッズあり）": show["p_top3"] * 100,
-            "モデル（オッズなし）": show["p_ability"] * 100, "複勝払戻": show["place_payout"].map(lambda x: "" if pd.isna(x) or x == 0 else int(x))}),
+            "モデル（オッズなし）": show["p_ability"] * 100, "複勝払戻": show["place_payout"].map(lambda x: "" if pd.isna(x) or x == 0 else f"{int(x):,}")}),
             hide_index=True, use_container_width=True, column_config={
                 c: st.column_config.ProgressColumn(min_value=0.0, max_value=100.0, format="%.0f%%") for c in ["市場の3着内", "モデル（オッズあり）", "モデル（オッズなし）"]})
 
