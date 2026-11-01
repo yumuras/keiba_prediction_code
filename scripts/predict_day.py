@@ -18,7 +18,35 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 warnings.filterwarnings("ignore")
+import bets as B  # noqa: E402
 import predict as P  # noqa: E402
+
+
+def bets_section(res):
+    """おすすめの買い方（的中しやすい順）。確率は、市場込みの勝率（オッズが無ければ能力勝率）から。期待値の目安は参考"""
+    use_odds = bool(res["use_odds"].iloc[0])
+    mix = use_odds and res["p_win_mix"].notna().all()
+    p = (res["p_win_mix"] if mix else res["p_win"]).to_numpy()
+    umaban, names = res["umaban"].astype(int).to_numpy(), res["horse_name"].tolist()
+    p_mkt = res["p_mkt_win"].to_numpy() if use_odds else None
+    top3 = (res["p_top3"] if use_odds else res["p_ability"]).to_numpy()
+    axis = res.assign(pp=top3).sort_values("pp", ascending=False)
+    a, rest = axis.iloc[0], axis.iloc[1:5]
+    out = [f"**おすすめの買い方**（確率の基準：{'市場込み' if mix else '能力ベース（オッズなし）'}。的中しやすい順）\n",
+           f"- 軸：{int(a.umaban)}番 {a.horse_name}（3着内 {a.pp:.0%}）／ 相手：" + "、".join(f"{int(x.umaban)}番 {x.horse_name}" for x in rest.itertuples()),
+           ""]
+    out.append("| 券種 | 買い目（確率・期待値の目安） |")
+    out.append("|---|---|")
+    fuku = res.assign(pp=top3).sort_values("pp", ascending=False).head(2)
+    out.append("| 複勝 | " + " ／ ".join(f"{int(x.umaban)} {x.horse_name}（{x.pp:.0%}）" for x in fuku.itertuples()) + " |")
+    for bet, n in (("ワイド", 3), ("馬連", 3), ("3連複", 3)):
+        t = B.combo_table(umaban, names, p, p_mkt, bet, n, "prob")
+        cells = []
+        for x in t.itertuples(index=False):
+            ev = f"・EV{x[3]:.2f}" if len(x) > 3 and x[3] == x[3] else ""
+            cells.append(f"{x[0]}（{x[1]:.0%}{ev}）")
+        out.append(f"| {bet} | " + " ／ ".join(cells) + " |")
+    return "\n".join(out) + "\n"
 
 
 def main(path):
@@ -36,7 +64,7 @@ def main(path):
            "- このモデルは、公開されている成績情報の範囲では、オッズ（市場）を超えていません。**買い目の根拠にはしないでください。**\n"]
     for r in card["races"]:
         n = len(r["horses"])
-        waku = P.assign_waku(n)
+        waku = P.assign_waku(max(n, max(h["umaban"] for h in r["horses"])))
         rows = []
         for h in sorted(r["horses"], key=lambda x: x["umaban"]):
             d = P.horse_defaults(last, h["name"], card["date"]) or {}
@@ -57,6 +85,7 @@ def main(path):
         top = res.sort_values("p_win", ascending=False).iloc[0]
         out.append(f"\n能力勝率の1位：{top.umaban}番 {top.horse_name}（{top.p_win:.1%}）／ 3着内確率（オッズあり）の上位3頭：" +
                    "、".join(f"{x.umaban}番 {x.horse_name}" for x in res.head(3).itertuples()))
+        out.append("\n" + bets_section(res))
         if new:
             out.append(f"\n履歴に過去の出走がない馬：{'、'.join(new)}（新馬、または名前の表記違い。過去成績は使えない）")
         out.append("")
