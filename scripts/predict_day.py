@@ -64,6 +64,8 @@ def main(path):
            "- このモデルは、公開されている成績情報の範囲では、オッズ（市場）を超えていません。**買い目の根拠にはしないでください。**\n"]
     for r in card["races"]:
         n = len(r["horses"])
+        if not n:  # 出走馬がまだ発表されていないレース
+            continue
         waku = P.assign_waku(max(n, max(h["umaban"] for h in r["horses"])))
         rows = []
         for h in sorted(r["horses"], key=lambda x: x["umaban"]):
