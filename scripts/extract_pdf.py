@@ -29,6 +29,9 @@ def detect_offset(chars, x0):
     return cnt.most_common(1)[0][0] if cnt else x0
 MARKS = "▲△☆◇★"
 KNOWN_FIX = {"?島克駿": "鮫島克駿", "?島良太": "鮫島良太", "?野泰之": "辻野泰之", "洞?湖": "洞爺湖", "?哲英": "辻哲英", "?城": "茨城", "?島一歩": "鮫島一歩", "井?一也": "井樋一也", "?島克駿ド": "鮫島克駿", "?島克也": "鮫島克也"}  # PDF内で外字になっている人名・地名
+# 文字を少しずらして重ね書きしたページ（2023-1chukyo10.pdf の12R）で、dedupe_chars で消し切れない馬名
+HORSE_FIX = {"セルバーググ": "セルバーグ", "タイゲンン": "タイゲン", "ゼットトレレヨヨンン": "ゼットレヨン",
+             "ジャッカルル": "ジャッカル", "セイククリリッッドド": "セイクリッド"}
 CLASSES = ["3勝クラス", "2勝クラス", "1勝クラス", "オープン", "新馬", "未勝利"]
 
 
@@ -73,13 +76,17 @@ def clean_race_name(rest):
 
 
 def parse_headers(text):
-    head_re = re.compile(r"(\d{5}) ?(\d+)月(\d+)日 (晴|曇|小雨|雨|小雪|雪) ?(\S+?) ?（(\d{4})年(\d+)(\S+?)）第(\d+)日 第(\d+)競走")
+    # 開催の表記は2024年以降「（2024年1東京）」、2023年は和暦で「（5東京1）」（令和5年・東京・1回）
+    head_re = re.compile(r"(\d{5}) ?(\d+)月(\d+)日 (晴|曇|小雨|雨|小雪|雪) ?(\S+?) ?（(?:(\d{4})年(\d+)(\S+?)|(\d)(\D+?)(\d+))） ?第(\d+)日 第(\d+)競走")
     lines = text.split("\n")
     out = []
     for i, ln in enumerate(lines):
         m = head_re.search(ln)
         if not m:
             continue
+        year = m.group(6) or str(2018 + int(m.group(9)))
+        kai = m.group(7) or m.group(11)
+        venue = m.group(8) or m.group(10)
         block = "\n".join(lines[i:i + 8])
         nxt = next((j for j in range(i + 1, len(lines)) if head_re.search(lines[j])), len(lines))
         seg = z2h("\n".join(lines[i:nxt]))
@@ -115,9 +122,9 @@ def parse_headers(text):
             laps=hm.group(1).strip().replace(" ", "") if hm else None,
             last3f=float(um.group(2)) if um else None,
             race_id=m.group(1),
-            date=f"{m.group(6)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}",
-            venue=m.group(8), kai=int(m.group(7)), nichi=int(m.group(9)),
-            race_no=int(m.group(10)), weather=m.group(4), going=going,
+            date=f"{year}-{int(m.group(2)):02d}-{int(m.group(3)):02d}",
+            venue=venue, kai=int(kai), nichi=int(m.group(12)),
+            race_no=int(m.group(13)), weather=m.group(4), going=going,
             surface="障害" if jump else (surf.group(2) if surf else None),
             course=surf.group(1) if surf else None,
             distance=int(dist.group(1) + dist.group(2)) if dist else None,
@@ -247,6 +254,7 @@ def parse_row(rc, y, off):
     waku = digits(g(18, 26))
     umaban = digits(g(26, 46))
     name = txt(g(46, 110.5)).replace(" ", "")
+    name = HORSE_FIX.get(name, name)
     sexc = g(110.5, 116)
     sex = ct(sexc[0]) if sexc else "?"
     if sex not in ("牡", "牝"):
@@ -295,6 +303,7 @@ def parse_pdf(path):
     out = []
     with pdfplumber.open(path) as pdf:
         for p in pdf.pages:
+            p = p.dedupe_chars(tolerance=1, extra_attrs=("size",))  # 同じ文字を同じ位置に重ね書きしたページがある（2023-1chukyo10.pdf の12R：名前が4重になる）
             for x0, x1 in HALVES:
                 chars = [c for c in p.chars if x0 <= c["x0"] < min(x1, p.width)]
                 if not chars:
