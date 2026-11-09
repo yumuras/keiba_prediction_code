@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- record_odds.py を5分ごとに動かす macOS の launchd 設定（README「買う時点のオッズの記録」）。
+     REPO を、このリポジトリのフォルダ（例 /Users/you/keiba_data/kp_record）に置き換えて、
+     ~/Library/LaunchAgents/com.keiba.odds_recorder.plist にコピーし、launchctl load で有効にする。
+     開催のない日・8時前・19時以降は、スクリプトがすぐに終わる（JRAへのアクセスは1日1回の開催確認だけ）。 -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.keiba.odds_recorder</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>REPO/.venv/bin/python</string>
+    <string>REPO/scripts/record_odds.py</string>
+  </array>
+  <key>WorkingDirectory</key><string>REPO</string>
+  <key>StartInterval</key><integer>300</integer>
+  <key>StandardOutPath</key><string>REPO/data/odds_log/recorder.log</string>
+  <key>StandardErrorPath</key><string>REPO/data/odds_log/recorder.log</string>
+</dict>
+</plist>

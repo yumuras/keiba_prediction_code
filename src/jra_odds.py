@@ -139,3 +139,8 @@ def fetch_odds(cname):
                     "馬単": lambda: parse_pairs(doc, "umatan", True), "3連複": lambda: parse_trio(doc),
                     "3連単": lambda: parse_trifecta(doc)}[label]()
     return out
+
+
+def fetch_win_place(cname):
+    """単勝・複勝のオッズだけを取り込む（ページ1回）。record_odds.py が、発走前に何度も記録するのに使う"""
+    return parse_win_place(LH.fromstring(_post(cname)))
