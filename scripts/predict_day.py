@@ -18,6 +18,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 warnings.filterwarnings("ignore")
+import bet_rules as BR  # noqa: E402
 import bets as B  # noqa: E402
 import predict as P  # noqa: E402
 
@@ -62,6 +63,7 @@ def main(path):
            f"- 学習・履歴: {models['meta']['date_min']}〜{models['meta']['date_max']}（{models['meta']['n_races']:,}レース）。**履歴にない成績（それ以降のレース）は使っていません。**",
            "- 能力勝率は、オッズ・人気・過去のオッズ由来の特徴量を使わずに決めた勝率です。オッズは、市場の確率と、市場との比較にだけ使っています。",
            "- このモデルは、公開されている成績情報の範囲では、オッズ（市場）を超えていません。**買い目の根拠にはしないでください。**\n"]
+    summary = []
     for r in card["races"]:
         n = len(r["horses"])
         if not n:  # 出走馬がまだ発表されていないレース
@@ -77,7 +79,7 @@ def main(path):
                     distance=r["distance"], course=P.course_string(r["surface"], r["turn"], r["inout"]), going=card["going"], weather=card["weather"],
                     race_class=r["race_class"], handicap=r["handicap"])
         res = P.predict_card(history, race, pd.DataFrame(rows), models, prepared=prepared)
-        res = res.assign(odds_rank=res["odds"].rank(method="min").astype(int)).sort_values("p_top3", ascending=False)
+        res = res.assign(odds_rank=res["odds"].rank(method="min").astype("Int64")).sort_values("p_top3", ascending=False)
         new = [h["name"] for h in r["horses"] if h["name"] not in known]
         out.append(f"## {r['race_no']}R {r['start_time']} {r['name']}（{r['race_class']}・{r['surface']}{r['distance']}m・{r['turn']}{'・' + r['inout'] if r['inout'] != '内' else ''}・{n}頭）\n")
         out.append("| 順位 | 馬番 | 馬名 | 騎手 | 単勝 | 人気 | 能力勝率 | 3着内（オッズあり） | 市場の3着内 | 3着内（オッズなし） | 過去の出走 |")
@@ -87,11 +89,20 @@ def main(path):
         top = res.sort_values("p_win", ascending=False).iloc[0]
         out.append(f"\n能力勝率の1位：{top.umaban}番 {top.horse_name}（{top.p_win:.1%}）／ 3着内確率（オッズあり）の上位3頭：" +
                    "、".join(f"{x.umaban}番 {x.horse_name}" for x in res.head(3).itertuples()))
+        j = BR.judge(res, last)
+        out.append("\n" + BR.as_markdown(j))
+        if j["verdict"] == "買う":
+            summary.append(f"- {r['race_no']}R {r['start_time']}：{j['verdict']} ― {j['bet']}（{j['reason']}）")
         out.append("\n" + bets_section(res))
         if new:
             out.append(f"\n履歴に過去の出走がない馬：{'、'.join(new)}（新馬、または名前の表記違い。過去成績は使えない）")
         out.append("")
         print(f"{r['race_no']}R done", flush=True)
+    head = ["## この日の買い・見送り（src/bet_rules.py）\n",
+            "過去の検証で回収率が高かった条件（本命1.3倍未満のレースの、2番人気の複勝。2023〜2026年で188件・回収率109%、まだ検証中）に当てはまるレースだけを挙げます。"
+            "それ以外は見送りです。判定は、出馬表を取り込んだ時点のオッズで、発走直前には変わることがあります。\n"]
+    head += summary or ["- 当てはまるレースはありません（全レース見送り）"]
+    out[5:5] = head + [""]
     dest = Path(path).with_name(Path(path).stem + "_predictions.md")
     dest.write_text("\n".join(out), encoding="utf-8")
     print("→", dest)
